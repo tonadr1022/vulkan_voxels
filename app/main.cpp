@@ -2,17 +2,19 @@
 
 #include "SDL3/SDL_events.h"
 #include "Util.hpp"
+#include "VoxelRenderer.hpp"
 #include "application/CVar.hpp"
 #include "application/Camera.hpp"
 #include "application/Renderer.hpp"
+#include "application/Timer.hpp"
 #include "application/Window.hpp"
 #include "imgui.h"
 #include "imgui_impl_sdl3.h"
 
 namespace {
 
+VoxelRenderer renderer;
 Window window;
-tvk::Renderer renderer;
 bool should_quit = false;
 bool paused = false;
 bool draw_imgui = true;
@@ -22,9 +24,9 @@ Camera main_cam;
 
 void OnEvent(const SDL_Event& e) {
   const auto& imgui_io = ImGui::GetIO();
+  ImGui_ImplSDL3_ProcessEvent(&e);
   if ((e.type == SDL_EVENT_KEY_DOWN || e.type == SDL_EVENT_KEY_UP) &&
       imgui_io.WantCaptureKeyboard) {
-    ImGui_ImplSDL3_ProcessEvent(&e);
     return;
   }
   if (e.type == SDL_EVENT_KEY_DOWN) {
@@ -66,31 +68,58 @@ void OnEvent(const SDL_Event& e) {
   }
 }
 
-void DrawImGui() { renderer.DrawImGui(); }
+struct Stats {
+  double frame_time{};
+  void DrawImGui() const { ImGui::Text("Frame Time: %f", frame_time); }
+} stats;
 
+void DrawImGui() {
+  if (ImGui::Begin("Voxel Renderer")) {
+    if (ImGui::CollapsingHeader("Stats", ImGuiTreeNodeFlags_DefaultOpen)) {
+      stats.DrawImGui();
+    }
+    if (ImGui::CollapsingHeader("Settings")) {
+      CVarSystem::Get().DrawImGuiEditor();
+    }
+    if (ImGui::CollapsingHeader("Renderer")) {
+      renderer.DrawImGui();
+    }
+    ImGui::End();
+  }
+}
+
+void Update(double) { main_cam.Update(); }
 }  // namespace
+
 int main() {
   ZoneScopedN("Run Frame");
   window.Init("Voxel Renderer", 1700, 900);
   renderer.Init(&window);
+  Timer timer;
   while (!should_quit) {
+    timer.Reset();
+    double dt = stats.frame_time / 1000.f;
     {
       SDL_Event e;
       while (SDL_PollEvent(&e)) {
         OnEvent(e);
       }
-      if (paused) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        continue;
-      }
-      if (draw_imgui) {
-        window.StartImGuiFrame();
-        DrawImGui();
-        CVarSystem::Get().DrawImGuiEditor();
-        window.EndImGuiFrame();
-      }
     }
-    renderer.Draw();
+
+    if (paused) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      continue;
+    }
+    Update(dt);
+
+    if (draw_imgui) {
+      window.StartImGuiFrame();
+      DrawImGui();
+      window.EndImGuiFrame();
+    }
+
+    renderer.Draw(draw_imgui);
+    stats.frame_time = timer.ElapsedMS();
   }
   renderer.Cleanup();
 }

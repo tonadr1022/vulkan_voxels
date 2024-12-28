@@ -17,7 +17,6 @@ class Window {
   glm::ivec2 UpdateWindowSize();
   void SetCursorPos(int x, int y);
   void CenterCursor();
-  void ImGuiProcessEvent(const SDL_Event& e);
 
   [[nodiscard]] struct SDL_Window* GetContext() const { return window_; }
 

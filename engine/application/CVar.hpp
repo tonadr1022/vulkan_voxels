@@ -18,19 +18,19 @@ class CVarParameter;
 class CVarSystem {
  public:
   static CVarSystem& Get();
-  virtual CVarParameter* GetCVar(util::string::Hash hash) = 0;
+  virtual CVarParameter* GetCVar(::util::string::Hash hash) = 0;
   virtual CVarParameter* CreateFloatCVar(const char* name, const char* description,
                                          double default_value, double current_value) = 0;
   virtual CVarParameter* CreateIntCVar(const char* name, const char* description,
                                        int32_t default_value, int32_t current_value) = 0;
   virtual CVarParameter* CreateStringCVar(const char* name, const char* description,
                                           const char* default_value, const char* current_value) = 0;
-  virtual double* GetFloatCVar(util::string::Hash hash) = 0;
-  virtual void SetFloatCVar(util::string::Hash hash, double value) = 0;
-  virtual int32_t* GetIntCVar(util::string::Hash hash) = 0;
-  virtual void SetIntCVar(util::string::Hash hash, int32_t value) = 0;
-  virtual const char* GetStringCVar(util::string::Hash hash) = 0;
-  virtual void SetStringCVar(util::string::Hash hash, const char* value) = 0;
+  virtual double* GetFloatCVar(::util::string::Hash hash) = 0;
+  virtual void SetFloatCVar(::util::string::Hash hash, double value) = 0;
+  virtual int32_t* GetIntCVar(::util::string::Hash hash) = 0;
+  virtual void SetIntCVar(::util::string::Hash hash, int32_t value) = 0;
+  virtual const char* GetStringCVar(::util::string::Hash hash) = 0;
+  virtual void SetStringCVar(::util::string::Hash hash, const char* value) = 0;
   virtual void DrawImGuiEditor() = 0;
 };
 

@@ -51,6 +51,9 @@ bool Camera::OnEvent(const SDL_Event& e) {
     yaw -= static_cast<float>(e.motion.xrel / look_speed_inv);
     pitch -= static_cast<float>(e.motion.yrel / look_speed_inv);
   }
+  if (handled) {
+    fmt::println("update cmaera");
+  }
   return handled;
 }
 

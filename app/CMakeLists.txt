@@ -5,6 +5,7 @@ project(voxel_app)
 add_executable(${PROJECT_NAME}
 main.cpp
 Util.cpp
+VoxelRenderer.cpp
 )
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE WORKING_DIR="${CMAKE_SOURCE_DIR}")

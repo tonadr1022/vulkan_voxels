@@ -62,6 +62,7 @@ AllocatedImage Allocator::CreateImage2D(VkExtent2D size, VkFormat format, VkImag
 }
 
 void Allocator::Init(VkDevice device, VmaAllocator allocator) {
+  assert(device != VK_NULL_HANDLE);
   device_ = device;
   allocator_ = allocator;
 }
@@ -80,7 +81,7 @@ void Allocator::DestroyImageAndView(const AllocatedImage& image) const {
   vmaDestroyImage(allocator_, image.image, image.allocation);
 }
 void Allocator::CreateImage(AllocatedImage& img, VkImageCreateInfo& create_info,
-                            VmaAllocationCreateInfo& alloc_info) {
+                            VmaAllocationCreateInfo& alloc_info) const {
   VK_CHECK(
       vmaCreateImage(allocator_, &create_info, &alloc_info, &img.image, &img.allocation, nullptr));
 }
@@ -109,9 +110,11 @@ VkFence FencePool::GetFence() {
 void FencePool::AddFreeFence(VkFence fence) { fences_.emplace_back(fence); }
 
 void FencePool::Init(VkDevice device) { device_ = device; }
+
 void FencePool::Cleanup() {
   for (VkFence fence : fences_) {
     vkDestroyFence(device_, fence, nullptr);
   }
 }
+VkExtent2D AllocatedImage::Extent2D() const { return {extent.width, extent.height}; }
 }  // namespace tvk

@@ -30,4 +30,4 @@ void DestroySwapchain(VkDevice device, const Swapchain& swapchain);
 
 SwapchainStatus UpdateSwapchain(Swapchain& result, VkPhysicalDevice physicalDevice, VkDevice device,
                                 VkSurfaceKHR surface, uint32_t familyIndex, uint32_t new_width,
-                                uint32_t new_height, VkFormat format, bool vsync, bool force);
+                                uint32_t new_height, VkFormat format, bool vsync);

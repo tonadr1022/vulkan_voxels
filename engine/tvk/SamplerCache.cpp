@@ -1,5 +1,7 @@
 #include "SamplerCache.hpp"
 
+#include <Error.hpp>
+
 namespace {
 
 size_t CombineHashes(size_t seed, size_t value) {
@@ -29,7 +31,7 @@ VkSampler SamplerCache::GetSampler(const VkSamplerCreateInfo& info) {
     return it->second;
   }
   VkSampler sampler;
-  vkCreateSampler(device_, &info, nullptr, &sampler);
+  VK_CHECK(vkCreateSampler(device_, &info, nullptr, &sampler));
   sampler_cache_.emplace(hash, sampler);
   return sampler;
 }

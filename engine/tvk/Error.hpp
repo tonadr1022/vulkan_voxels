@@ -15,8 +15,8 @@ VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(
     ::tvk::PrintVkError(x); \
   } while (0)
 #else
-#define VK_CHECK(x)        \
-  do {                     \
-    ::vk::PrintVkError(x); \
+#define VK_CHECK(x)         \
+  do {                      \
+    ::tvk::PrintVkError(x); \
   } while (0)
 #endif

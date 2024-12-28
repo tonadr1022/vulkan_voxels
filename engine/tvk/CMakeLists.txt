@@ -16,6 +16,7 @@ SamplerCache.cpp
 Shader.cpp
 ShaderWatcher.cpp
 Swapchain.cpp
+ImGuiUtil.cpp
 Util.cpp
 VMA.cpp
 )
@@ -31,6 +32,7 @@ Vulkan::Vulkan
 SDL3::SDL3
 vk-bootstrap::vk-bootstrap
 tracy
+imgui_backend
 spirv_reflect
 bs_thread_pool
 )

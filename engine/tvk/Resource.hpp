@@ -22,6 +22,7 @@ struct AllocatedImage {
   VmaAllocation allocation;
   VkExtent3D extent;
   VkFormat format;
+  [[nodiscard]] VkExtent2D Extent2D() const;
 };
 
 struct Allocator {
@@ -41,7 +42,7 @@ struct Allocator {
 
   [[nodiscard]] VmaAllocator GetAllocator() const { return allocator_; }
   void CreateImage(AllocatedImage& img, VkImageCreateInfo& create_info,
-                   VmaAllocationCreateInfo& alloc_info);
+                   VmaAllocationCreateInfo& alloc_info) const;
   [[nodiscard]] AllocatedImage CreateImage2D(VkExtent2D size, VkFormat format,
                                              VkImageUsageFlags usage, bool mipmapped = false,
                                              bool make_view = true,

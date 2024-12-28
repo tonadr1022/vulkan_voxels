@@ -4,7 +4,6 @@
 #include <SDL3/SDL_vulkan.h>
 
 #include "SDL3/SDL_video.h"
-#include "glm/vec2.hpp"
 #include "imgui_impl_sdl3.h"
 #include "imgui_impl_vulkan.h"
 
@@ -24,8 +23,6 @@ void Window::Init(const char* title, int width, int height) {
 //     func(e);
 //   }
 // }
-
-void Window::ImGuiProcessEvent(const SDL_Event& e) { ImGui_ImplSDL3_ProcessEvent(&e); }
 
 glm::ivec2 Window::UpdateWindowSize() {
   SDL_GetWindowSize(GetContext(), &w_, &h_);
