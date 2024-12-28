@@ -1,0 +1,9 @@
+bin
+.idea
+.cache
+build
+build-*
+cmake-build-*
+*.spv
+imgui.ini
+local_screenshots

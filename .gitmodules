@@ -1,0 +1,21 @@
+[submodule "third_party/tracy"]
+	path = third_party/tracy
+	url = https://github.com/wolfpld/tracy.git
+[submodule "third_party/glm"]
+	path = third_party/glm
+	url = https://github.com/g-truc/glm.git
+[submodule "third_party/vk-bootstrap"]
+	path = third_party/vk-bootstrap
+	url = https://github.com/charles-lunarg/vk-bootstrap.git
+[submodule "third_party/SDL"]
+	path = third_party/SDL
+	url = https://github.com/libsdl-org/SDL.git
+[submodule "third_party/imgui"]
+	path = third_party/imgui
+	url = https://github.com/ocornut/imgui.git
+[submodule "third_party/VulkanMemoryAllocator"]
+	path = third_party/VulkanMemoryAllocator
+	url = git@github.com:GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
+[submodule "third_party/fmt"]
+	path = third_party/fmt
+	url = https://github.com/fmtlib/fmt
