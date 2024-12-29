@@ -31,7 +31,7 @@ struct Renderer {
   virtual void Cleanup();
   virtual void Init(Window* window);
   void ReloadShaders();
-  void DrawImGui();
+  virtual void DrawImGui();
 
   virtual ~Renderer();
 
@@ -51,7 +51,6 @@ struct Renderer {
     VkSampler depth_sampler;
   } default_data_;
 
-  tvk::DescriptorSetLayoutCache descriptor_set_layout_cache_;
   FrameData frames_[2];
   uint64_t frame_num_{0};
   VkInstance instance_;
@@ -98,7 +97,10 @@ struct Renderer {
   tvk::AllocatedImage CreateImage2D(void* data, VkExtent2D size, VkFormat format,
                                     VkImageUsageFlags usage, bool mipmapped = false);
   void InitDefaultData();
-  void InitPipelines();
+  void RegisterComputePipelines(std::span<std::pair<tvk::Pipeline*, std::string>> pipelines);
+  void RegisterComputePipelines(
+      std::initializer_list<std::pair<tvk::Pipeline*, std::string>> pipelines);
+  virtual void InitPipelines() = 0;
   void InitCommands();
   void InitDescriptors();
   void InitSyncStructures();
@@ -113,4 +115,7 @@ struct Renderer {
   void InitShaderWatcher(float wait_time);
 
   void DrawImGui(VkCommandBuffer cmd, VkImageView target_img_view, VkExtent2D draw_extent);
+
+ private:
+  void RegisterComputePipelinesInternal(auto pipelines);
 };

@@ -117,4 +117,12 @@ void FencePool::Cleanup() {
   }
 }
 VkExtent2D AllocatedImage::Extent2D() const { return {extent.width, extent.height}; }
+void CopyBuffer(VkCommandBuffer cmd, AllocatedBuffer& src, AllocatedBuffer& dst, size_t size,
+                size_t dst_offset, size_t src_offset) {
+  VkBufferCopy vertex_copy{};
+  vertex_copy.dstOffset = dst_offset;
+  vertex_copy.srcOffset = src_offset;
+  vertex_copy.size = size;
+  vkCmdCopyBuffer(cmd, src.buffer, dst.buffer, 1, &vertex_copy);
+}
 }  // namespace tvk

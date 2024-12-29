@@ -20,3 +20,8 @@
 #define SHADER_DIR RESOURCE_DIR PATH_SEP "shaders"
 #define SHADER_PATH(shader_path) \
   (std::string(WORKING_DIR) + "resources" PATH_SEP + "shaders" + PATH_SEP + (shader_path))
+
+template <typename T, size_t Size>
+char (*countof_helper(T (&_array_)[Size]))[Size];
+
+#define COUNTOF(array) (sizeof(*countof_helper(array)) + 0)

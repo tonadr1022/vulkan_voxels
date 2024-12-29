@@ -24,4 +24,4 @@
 #define RESOURCE_DIR WORKING_DIR PATH_SEP "resources"
 #define SHADER_DIR RESOURCE_DIR PATH_SEP "shaders"
 #define SHADER_PATH(shader_path) \
-  (std::string(WORKING_DIR) + "resources" PATH_SEP + "shaders" + PATH_SEP + (shader_path))
+  (std::string(WORKING_DIR) + PATH_SEP "resources" PATH_SEP + "shaders" + PATH_SEP + (shader_path))

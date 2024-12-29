@@ -2,6 +2,8 @@
 
 #include <vulkan/vulkan_core.h>
 
+#include <span>
+
 namespace tvk {
 
 struct DescriptorSetLayoutCache;

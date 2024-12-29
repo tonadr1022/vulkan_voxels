@@ -1,5 +1,4 @@
 #pragma once
-
 #include <vulkan/vulkan_core.h>
 
 #include <deque>
@@ -61,6 +60,7 @@ struct DescriptorAllocatorGrowable {
   uint32_t sets_per_pool_;
 };
 
+struct AllocatedImage;
 struct DescriptorBuilder {
   DescriptorBuilder& Begin(VkShaderStageFlags stages = 0);
   DescriptorBuilder& WriteImage(int binding, VkImageView image, VkSampler sampler,
@@ -70,6 +70,7 @@ struct DescriptorBuilder {
                                 VkShaderStageFlags stages);
   DescriptorBuilder& WriteImage(int binding, VkImageView image, VkImageLayout layout,
                                 VkDescriptorType type);
+  DescriptorBuilder& WriteGeneralStorageImage(int binding, const AllocatedImage& image);
   DescriptorBuilder& WriteBuffer(int binding, VkDescriptorBufferInfo* info, VkDescriptorType type);
   DescriptorBuilder& WriteBuffer(int binding, VkBuffer buffer, size_t size, size_t offset,
                                  VkDescriptorType type);

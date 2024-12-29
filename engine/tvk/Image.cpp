@@ -2,6 +2,7 @@
 
 #include "Barrier.hpp"
 #include "Initializers.hpp"
+#include "Resource.hpp"
 
 namespace tvk::util {
 
@@ -53,6 +54,9 @@ void BlitImage(VkCommandBuffer cmd, VkImage source, VkImage dest, VkExtent2D src
                VkExtent2D dst_size) {
   BlitImage(cmd, source, dest, src_size, dst_size, VK_IMAGE_ASPECT_COLOR_BIT,
             VK_IMAGE_ASPECT_COLOR_BIT);
+}
+void BlitImage(VkCommandBuffer& cmd, AllocatedImage& src, AllocatedImage& dst) {
+  BlitImage(cmd, src.image, dst.image, src.Extent2D(), dst.Extent2D());
 }
 
 void GenerateMipmaps(VkCommandBuffer cmd, VkImage image, VkExtent2D image_size) {

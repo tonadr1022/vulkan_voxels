@@ -22,6 +22,9 @@ add_subdirectory(SDL)
 add_subdirectory(VulkanMemoryAllocator)
 add_subdirectory(fmt)
 
+set(FASTNOISE2_NOISETOOL OFF CACHE BOOL "Build Noise Tool" FORCE)
+add_subdirectory(FastNoise2)
+
 add_library(bs_thread_pool INTERFACE)
 target_include_directories(bs_thread_pool SYSTEM INTERFACE bs_thread_pool)
 add_library(stb_image INTERFACE)

@@ -19,3 +19,6 @@
 [submodule "third_party/fmt"]
 	path = third_party/fmt
 	url = https://github.com/fmtlib/fmt
+[submodule "third_party/FastNoise2"]
+	path = third_party/FastNoise2
+	url = git@github.com:Auburn/FastNoise2.git

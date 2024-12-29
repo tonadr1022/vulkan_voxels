@@ -7,6 +7,7 @@
 
 #include "Config.hpp"
 #include "Descriptors.hpp"
+#include "Pipeline.hpp"
 #include "SDL3/SDL_vulkan.h"
 #include "Swapchain.hpp"
 #include "Util.hpp"
@@ -39,6 +40,7 @@ void Renderer::Init(Window* window) {
   InitSyncStructures();
   InitDescriptors();
   InitPipelines();
+  LoadShaders(true, true);
   tvk::resource::SamplerCache::Init(device_);
   InitDefaultData();
   set_cache_.Init(device_);
@@ -191,8 +193,6 @@ void Renderer::InitDefaultData() {
   });
 }
 
-void Renderer::InitPipelines() { LoadShaders(true, true); }
-
 void Renderer::InitDescriptors() {
   // descriptor pool will hold 10 sets with 1 image each
   std::vector<tvk::DescriptorAllocatorGrowable::PoolSizeRatio> sizes = {
@@ -335,7 +335,7 @@ void Renderer::CreatePipeline(tvk::Pipeline* pipeline, bool force) {
     if (!dirty) return;
   }
 #endif
-  pipeline->Create(device_, GetCurrentFrame().deletion_queue, descriptor_set_layout_cache_);
+  pipeline->Create(device_, GetCurrentFrame().deletion_queue, set_cache_);
 }
 
 void Renderer::InitShaderWatcher(float wait_time) {
@@ -373,8 +373,10 @@ void Renderer::Cleanup() {
     tvk::resource::SamplerCache::Get().Clear();
 
     for (auto& p : pipelines_) {
-      vkDestroyPipelineLayout(device_, p->pipeline->layout, nullptr);
-      vkDestroyPipeline(device_, p->pipeline->pipeline, nullptr);
+      if (p && p->pipeline && p->pipeline->pipeline) {
+        vkDestroyPipelineLayout(device_, p->pipeline->layout, nullptr);
+        vkDestroyPipeline(device_, p->pipeline->pipeline, nullptr);
+      }
     }
     set_cache_.Cleanup();
 
@@ -602,3 +604,22 @@ bool Renderer::AcquireNextImage() {
   return acquire_next_img_result != VK_ERROR_OUT_OF_DATE_KHR;
 }
 void Renderer::Screenshot(const std::string&) { assert(0 && "unimplemented"); }
+
+void Renderer::RegisterComputePipelines(
+    std::span<std::pair<tvk::Pipeline*, std::string>> pipelines) {
+  RegisterComputePipelinesInternal(pipelines);
+}
+void Renderer::RegisterComputePipelinesInternal(auto pipelines) {
+  auto compute_create = [this](std::span<tvk::Shader> shaders, tvk::PipelineAndLayout& p) {
+    LoadComputePipeline(device_, shaders, p);
+  };
+  for (const auto& [ptr, name] : pipelines) {
+    ptr->shaders = {tvk::Shader{name}};
+    ptr->create_fn = compute_create;
+    pipelines_.push_back(ptr);
+  }
+}
+void Renderer::RegisterComputePipelines(
+    std::initializer_list<std::pair<tvk::Pipeline*, std::string>> pipelines) {
+  RegisterComputePipelinesInternal(pipelines);
+}

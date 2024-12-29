@@ -55,6 +55,8 @@ struct Allocator {
   VmaAllocator allocator_;
 };
 
+void CopyBuffer(VkCommandBuffer cmd, AllocatedBuffer& src, AllocatedBuffer& dst, size_t size,
+                size_t dst_offset = 0, size_t src_offset = 0);
 uint32_t GetMipLevels(VkExtent2D size);
 
 struct FencePool {

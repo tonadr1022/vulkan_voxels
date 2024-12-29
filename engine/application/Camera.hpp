@@ -9,7 +9,7 @@ class Camera {
   glm::vec3 velocity{0};
   glm::vec3 position;
   float pitch{0}, yaw{0};
-  float move_speed_mult{.2f};
+  float move_speed_mult{.05f};
   float look_speed_inv{400.f};
   void LookAt(const glm::vec3& pos);
   [[nodiscard]] glm::mat4 GetView() const;
@@ -17,6 +17,8 @@ class Camera {
 
   bool OnEvent(const SDL_Event& e);
   void Update();
+
+  [[nodiscard]] glm::vec3 GetLookDirection() const;
 
  private:
 };

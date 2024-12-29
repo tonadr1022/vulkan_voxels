@@ -3,6 +3,7 @@
 #include <vulkan/vulkan_core.h>
 
 #include "Error.hpp"
+#include "Resource.hpp"
 
 namespace tvk {
 
@@ -297,5 +298,9 @@ void DescriptorSetLayoutCache::Clear() {
 DescriptorBuilder& DescriptorBuilder::WriteImage(int binding, VkImageView image,
                                                  VkImageLayout layout, VkDescriptorType type) {
   return WriteImage(binding, image, VK_NULL_HANDLE, layout, type);
+}
+DescriptorBuilder& DescriptorBuilder::WriteGeneralStorageImage(int binding,
+                                                               const AllocatedImage& image) {
+  return WriteImage(binding, image.view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
 }
 }  // namespace tvk
