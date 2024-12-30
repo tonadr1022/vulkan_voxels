@@ -9,6 +9,8 @@ Util.cpp
 VoxelRenderer.cpp
 voxels/Mesher.cpp
 voxels/Chunk.cpp
+ChunkMeshManager.cpp
+StagingBufferPool.cpp
 )
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE WORKING_DIR="${CMAKE_SOURCE_DIR}")
@@ -19,7 +21,7 @@ target_precompile_headers(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/pc
 #
 # target_include_directories(${PROJECT_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 
-target_link_libraries(${PROJECT_NAME} PRIVATE engine FastNoise)
+target_link_libraries(${PROJECT_NAME} PRIVATE engine FastNoise tracy)
 
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")

@@ -2,11 +2,15 @@
 
 #include <vulkan/vulkan_core.h>
 
+#include <tracy/TracyVulkan.hpp>
+
+#include "ChunkMeshManager.hpp"
 #include "Descriptors.hpp"
 #include "Image.hpp"
 #include "Initializers.hpp"
 #include "Pipeline.hpp"
 #include "Resource.hpp"
+#include "StagingBufferPool.hpp"
 #include "Types.hpp"
 #include "imgui.h"
 #include "tvk/Barrier.hpp"
@@ -14,18 +18,18 @@
 
 using tvk::DescriptorBuilder;
 using tvk::ImagePipelineState;
-using tvk::PipelineAndLayout;
 using tvk::PipelineBarrier;
-using tvk::Shader;
 using tvk::init::ImageBarrier;
 using tvk::init::ImageBarrierUpdate;
 using tvk::util::BlitImage;
 
 void VoxelRenderer::Draw(bool draw_imgui) {
+  ZoneScoped;
   if (!UpdateSwapchainAndCheckIfReady()) {
     return;
   }
   WaitForMainRenderFence();
+  ChunkMeshManager::Get().Update();
   FlushFrameData();
   if (!AcquireNextImage()) {
     return;
@@ -149,3 +153,18 @@ void VoxelRenderer::DrawImGui() {
 }
 
 void VoxelRenderer::DrawChunks(VkCommandBuffer, tvk::AllocatedImage&) {}
+
+void VoxelRenderer::Init(Window* window) {
+  Renderer::Init(window);
+  fence_pool_.Init(device_);
+  ChunkMeshManager::Get().Init(this);
+  staging_buffer_pool_.Init({sizeof(uint64_t) * 20000});
+
+  main_deletion_queue_.PushFunc([this]() {
+    ChunkMeshManager::Get().Cleanup();
+    fence_pool_.Cleanup();
+    staging_buffer_pool_.Cleanup();
+  });
+}
+
+VoxelRenderer::VoxelRenderer() : staging_buffer_pool_(allocator_) {}

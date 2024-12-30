@@ -1,6 +1,7 @@
 #include <cstddef>
 #include <thread>
 
+#include "ChunkMeshManager.hpp"
 #include "SDL3/SDL_events.h"
 #include "Util.hpp"
 #include "VoxelRenderer.hpp"
@@ -165,51 +166,88 @@ void DrawImGui() {
   }
 }
 
-void Update(double) { main_cam.Update(); }
-
-}  // namespace
+void Update(double) {
+  ZoneScoped;
+  main_cam.Update();
+}
 
 using ChunkVertexVector = std::vector<uint64_t>;
 
 template <typename T>
-struct FixedSizePool {
+struct FixedSizePtrPool {
   void Init(uint32_t size) {
-    for (uint32_t i = 0; i < size; i++) {
-      free_indices.emplace_back(i);
-    }
     data.resize(size);
-  }
-  uint32_t Alloc() {
-    assert(!free_indices.empty() && "Cannot exceed fixed size pool alloc size");
-    if (free_indices.empty()) {
-      return UINT32_MAX;
+    free_list.reserve(size);
+    for (uint32_t i = 0; i < size; i++) {
+      free_list.emplace_back(i);
     }
-    uint32_t idx = free_indices.back();
-    free_indices.pop_back();
+  }
+
+  uint32_t Alloc() {
+    assert(!free_list.empty());
+    auto idx = free_list.back();
+    free_list.pop_back();
+    if (data[idx] == nullptr) {
+      data[idx] = std::make_unique<T>();
+    }
     return idx;
   }
-
   T* Get(uint32_t handle) {
     assert(handle < data.size());
-    return &data[handle];
+    return data[handle].get();
   }
 
-  void Free(uint32_t handle) { free_indices.emplace_back(handle); }
+  void Free(uint32_t handle) { free_list.emplace_back(handle); }
 
-  std::vector<uint32_t> free_indices;
+  std::vector<std::unique_ptr<T>> data;
+  std::vector<uint32_t> free_list;
+};
+
+template <typename T>
+struct FixedSizePool {
+  void Init(uint32_t size) {
+    data.resize(size, {});
+    free_list.resize(size);
+    for (uint32_t i = 0; i < size; i++) {
+      free_list[i] = i + 1;
+    }
+    // end of free list
+    free_list[size - 1] = -1;
+    // first free slot
+    free_head = 0;
+  }
+
+  T* Alloc() {
+    if (free_head == -1) {
+      return nullptr;
+    }
+    uint32_t curr = free_head;
+    free_head = free_list[free_head];
+    return &data[curr];
+  }
+
+  void Free(T* obj) {
+    assert(obj >= data.data() && obj < data.data() + data.size());
+    uint32_t idx = obj - data.data();
+    free_list[idx] = free_head;
+    free_head = idx;
+  }
+
+  int32_t free_head = -1;
+  std::vector<uint32_t> free_list;
   std::vector<T> data;
 };
 
 constexpr int MaxMeshTasks = 64;
-FixedSizePool<MeshAlgData> mesh_alg_pool;
-FixedSizePool<MeshData> mesh_data_pool;
+}  // namespace
 
 int main() {
+  FixedSizePtrPool<MeshAlgData> mesh_alg_pool;
+  FixedSizePool<MeshData> mesh_data_pool;
   mesh_alg_pool.Init(MaxMeshTasks);
   mesh_data_pool.Init(MaxMeshTasks);
 
   int seed = 1;
-  ZoneScopedN("Run Frame");
   window.Init("Voxel Renderer", 1700, 900);
   renderer.Init(&window);
   Timer timer;
@@ -224,10 +262,16 @@ int main() {
   gen::NoiseToHeights(height_map_floats, heights, {0, 32});
 
   gen::FillChunk(grid, heights, 1);
-  MeshData data;
-  MeshAlgData alg_data;
-  data.mask = &grid.mask;
-  GenerateMesh(grid.grid.grid, alg_data, data);
+  MeshData* data = mesh_data_pool.Alloc();
+  auto alg_data_alloc = mesh_alg_pool.Alloc();
+
+  MeshAlgData* alg_data = mesh_alg_pool.Get(alg_data_alloc);
+  data->mask = &grid.mask;
+
+  GenerateMesh(grid.grid.grid, *alg_data, *data);
+
+  mesh_data_pool.Free(data);
+  mesh_alg_pool.Free(alg_data_alloc);
   // gen::FillSphere();
 
   // mesh
@@ -238,10 +282,12 @@ int main() {
   renderer.vsettings.aabb.max = vec3{0.5};
   double last_time = timer.ElapsedMS();
   while (!should_quit) {
+    ZoneScopedN("Frame");
     double time = timer.ElapsedMS();
     double dt = (time - last_time) / 1000.f;
     last_time = time;
     {
+      ZoneScopedN("Events");
       SDL_Event e;
       while (SDL_PollEvent(&e)) {
         OnEvent(e);
@@ -255,6 +301,7 @@ int main() {
     Update(dt);
 
     if (draw_imgui) {
+      ZoneScopedN("ImGui");
       window.StartImGuiFrame();
       DrawImGui();
       window.EndImGuiFrame();
@@ -265,7 +312,17 @@ int main() {
     scene_data.cam_pos = main_cam.position;
     scene_data.time = time;
     renderer.Draw(&scene_data, draw_imgui);
-    stats.frame_time = dt;
+    static int i = 0;
+    if (i++ < 10) {
+      std::vector<ChunkMeshManager::ChunkMeshUpload> uploads;
+      int cnt = 100;
+      uploads.reserve(cnt);
+      for (int j = 0; j < cnt; j++) {
+        uploads.emplace_back(data->vertex_cnt, 0, data->vertices.data());
+      }
+      ChunkMeshManager::Get().UploadChunkMeshes(uploads);
+      stats.frame_time = dt;
+    }
   }
   renderer.Cleanup();
 }

@@ -51,6 +51,41 @@ void Renderer::Init(Window* window) {
       TracyVkContext(chosen_gpu_, device_, graphics_queue_, frames_[0].main_command_buffer);
 }
 
+void Renderer::ReturnFence(VkFence fence) { fence_pool_.AddFreeFence(fence); }
+
+AsyncTransfer Renderer::TransferSubmitAsync(std::function<void(VkCommandBuffer cmd)>&& function) {
+  AsyncTransfer transfer;
+  transfer.fence = fence_pool_.GetFence();
+  VK_CHECK(vkResetFences(device_, 1, &transfer.fence));
+  if (free_transfer_cmd_buffers_.empty()) {
+    VkCommandBuffer buf;
+    VkCommandBufferAllocateInfo cmd_alloc_info =
+        tvk::init::CommandBufferAllocateInfo(transfer_command_pool_);
+    VK_CHECK(vkAllocateCommandBuffers(device_, &cmd_alloc_info, &buf));
+    free_transfer_cmd_buffers_.emplace_back(buf);
+  }
+  VkCommandBuffer cmd = free_transfer_cmd_buffers_.back();
+  free_transfer_cmd_buffers_.pop_back();
+  VK_CHECK(vkResetCommandBuffer(cmd, 0));
+
+  VkCommandBufferBeginInfo cmd_begin_info =
+      tvk::init::CommandBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+  VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
+
+  function(cmd);
+
+  VK_CHECK(vkEndCommandBuffer(cmd));
+
+  VkCommandBufferSubmitInfo cmd_info = tvk::init::CommandBufferSubmitInfo(cmd);
+  VkSubmitInfo2 submit = tvk::init::SubmitInfo(&cmd_info, nullptr, nullptr);
+
+  // submit command buffer to the queue and execute it.
+  VK_CHECK(vkQueueSubmit2(transfer_queue_, 1, &submit, transfer.fence));
+
+  transfer.cmd = cmd;
+  return transfer;
+}
+
 void Renderer::ImmediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function) {
   VK_CHECK(vkResetFences(device_, 1, &imm_fence_));
   VK_CHECK(vkResetCommandBuffer(imm_command_buffer_, 0));
@@ -276,8 +311,6 @@ void Renderer::InitCommands() {
   command_pool_info = tvk::init::CommandPoolCreateInfo(
       transfer_queue_family_, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
   VK_CHECK(vkCreateCommandPool(device_, &command_pool_info, nullptr, &transfer_command_pool_));
-  cmd_alloc_info = tvk::init::CommandBufferAllocateInfo(transfer_command_pool_);
-  VK_CHECK(vkAllocateCommandBuffers(device_, &cmd_alloc_info, &transfer_command_buffer_));
   main_deletion_queue_.PushFunc([this]() {
     vkDestroyCommandPool(device_, transfer_command_pool_, nullptr);
     vkDestroyCommandPool(device_, imm_command_pool_, nullptr);

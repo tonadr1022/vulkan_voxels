@@ -86,6 +86,14 @@ void Allocator::CreateImage(AllocatedImage& img, VkImageCreateInfo& create_info,
       vmaCreateImage(allocator_, &create_info, &alloc_info, &img.image, &img.allocation, nullptr));
 }
 
+AllocatedBuffer Allocator::CreateStagingBuffer(size_t size, VkBufferUsageFlags usage,
+                                               VmaMemoryUsage memory_usage,
+                                               VmaAllocationCreateFlags flags,
+                                               VkMemoryPropertyFlags req_mem_flags) const {
+  ZoneScoped;
+  return CreateBuffer(size, usage, memory_usage, flags, req_mem_flags);
+}
+
 AllocatedBuffer Allocator::CreateStagingBuffer(void* data, size_t size, VkBufferUsageFlags usage,
                                                VmaMemoryUsage memory_usage,
                                                VmaAllocationCreateFlags flags,

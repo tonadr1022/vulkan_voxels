@@ -2,6 +2,8 @@
 
 #include <cstddef>
 
+#include "application/Timer.hpp"
+
 // https://github.com/cgerikj/binary-greedy-meshing/tree/master
 
 namespace {
@@ -20,7 +22,7 @@ inline int AxisIndex(const int axis, const int a, const int b, const int c) {
 inline void InsertQuad(std::vector<uint64_t>& vertices, uint64_t quad, int& i_vertex,
                        int& vertex_capacity) {
   if (i_vertex >= vertex_capacity - 6) {
-    vertex_capacity *= 2;
+    vertex_capacity = std::max(1, vertex_capacity * 2);
     vertices.resize(static_cast<size_t>(vertex_capacity), 0);
   }
   vertices[i_vertex] = quad;
@@ -30,8 +32,10 @@ inline void InsertQuad(std::vector<uint64_t>& vertices, uint64_t quad, int& i_ve
 }  // namespace
 
 void GenerateMesh(std::span<uint8_t> voxels, MeshAlgData& alg_data, MeshData& mesh_data) {
+  ZoneScoped;
+  Timer t;
   mesh_data.vertex_cnt = 0;
-  alg_data.max_vertices = mesh_data.vertices->size();
+  alg_data.max_vertices = mesh_data.vertices.size();
   const auto& opaque_mask = mesh_data.mask->mask;
   auto& forward_merged = alg_data.forward_merged;
   auto& right_merged = alg_data.right_merged;
@@ -44,19 +48,19 @@ void GenerateMesh(std::span<uint8_t> voxels, MeshAlgData& alg_data, MeshData& me
       // extract the column mask from the opaque mask, (sets the pad bits of column to 0)
       const uint64_t column_bits = opaque_mask[(a_pcs) + b] & (~(1ull << 63 | 1));
       // convert indices back to unpadded dimensions
-      const int face_mask_ba_idx = (b - 1) + (a - 1) * CS;
-      const int face_mask_ab_idx = (a - 1) + (b - 1) * CS;
+      const int face_mask_ba_idx = (b - 1) + ((a - 1) * CS);
+      const int face_mask_ab_idx = (a - 1) + ((b - 1) * CS);
 
       // shift mask in each direction flip the bits, and with the column to get whether
       // faces should be hidden
-      face_masks[face_mask_ba_idx + 0 * CS2] = (column_bits & ~opaque_mask[a_pcs + PCS + b]) >> 1;
-      face_masks[face_mask_ba_idx + 1 * CS2] = (column_bits & ~opaque_mask[a_pcs - PCS + b]) >> 1;
+      face_masks[face_mask_ba_idx + (0 * CS2)] = (column_bits & ~opaque_mask[a_pcs + PCS + b]) >> 1;
+      face_masks[face_mask_ba_idx + (1 * CS2)] = (column_bits & ~opaque_mask[a_pcs - PCS + b]) >> 1;
 
-      face_masks[face_mask_ab_idx + 2 * CS2] = (column_bits & ~opaque_mask[a_pcs + (b + 1)]) >> 1;
-      face_masks[face_mask_ab_idx + 3 * CS2] = (column_bits & ~opaque_mask[a_pcs + (b - 1)]) >> 1;
+      face_masks[face_mask_ab_idx + (2 * CS2)] = (column_bits & ~opaque_mask[a_pcs + (b + 1)]) >> 1;
+      face_masks[face_mask_ab_idx + (3 * CS2)] = (column_bits & ~opaque_mask[a_pcs + (b - 1)]) >> 1;
 
-      face_masks[face_mask_ab_idx + 4 * CS2] = (column_bits & ~(opaque_mask[a_pcs + b]) >> 1);
-      face_masks[face_mask_ab_idx + 5 * CS2] = (column_bits & ~(opaque_mask[a_pcs + b]) << 1);
+      face_masks[face_mask_ab_idx + (4 * CS2)] = (column_bits & ~(opaque_mask[a_pcs + b]) >> 1);
+      face_masks[face_mask_ab_idx + (5 * CS2)] = (column_bits & ~(opaque_mask[a_pcs + b]) << 1);
     }
   }
 
@@ -67,7 +71,7 @@ void GenerateMesh(std::span<uint8_t> voxels, MeshAlgData& alg_data, MeshData& me
     const int face_vertex_begin = i_vertex;
     // iterate over each layer in the chunk
     for (int layer = 0; layer < CS; layer++) {
-      const int bits_loc = layer * CS + face * CS2;
+      const int bits_loc = (layer * CS) + (face * CS2);
       // iterate over each row/col
       for (int forward = 0; forward < CS; forward++) {
         // get the current row/col bits
@@ -137,7 +141,7 @@ void GenerateMesh(std::span<uint8_t> voxels, MeshAlgData& alg_data, MeshData& me
               quad = EncodeQuad(mesh_up, mesh_front + (face == 2 ? mesh_length : 0), mesh_left,
                                 mesh_length, mesh_width, type);
           }
-          InsertQuad(*mesh_data.vertices, quad, i_vertex, alg_data.max_vertices);
+          InsertQuad(mesh_data.vertices, quad, i_vertex, alg_data.max_vertices);
         }
       }
     }
@@ -148,8 +152,8 @@ void GenerateMesh(std::span<uint8_t> voxels, MeshAlgData& alg_data, MeshData& me
     const int axis = face / 2;
     const int face_vertex_begin = i_vertex;
     for (int forward = 0; forward < CS; forward++) {
-      const int bits_loc = forward * CS + face * CS2;
-      const int bits_forward_loc = (forward + 1) * CS + face * CS2;
+      const int bits_loc = (forward * CS) + (face * CS2);
+      const int bits_forward_loc = ((forward + 1) * CS) + (face * CS2);
 
       for (int right = 0; right < CS; right++) {
         // get the current row/col bits
@@ -200,7 +204,7 @@ void GenerateMesh(std::span<uint8_t> voxels, MeshAlgData& alg_data, MeshData& me
 
           const uint64_t quad = EncodeQuad(mesh_left + (face == 4 ? mesh_width : 0), mesh_front,
                                            mesh_up, mesh_width, mesh_length, type);
-          InsertQuad(*mesh_data.vertices, quad, i_vertex, alg_data.max_vertices);
+          InsertQuad(mesh_data.vertices, quad, i_vertex, alg_data.max_vertices);
         }
       }
     }

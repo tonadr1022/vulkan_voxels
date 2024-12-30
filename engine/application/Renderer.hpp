@@ -25,10 +25,15 @@ class VkCtx;
 }
 class Window;
 
+struct AsyncTransfer {
+  VkFence fence;
+  VkCommandBuffer cmd;
+};
+
 struct Renderer {
   void Screenshot(const std::string& path);
   virtual void Draw(bool draw_imgui) = 0;
-  virtual void Cleanup();
+  void Cleanup();
   virtual void Init(Window* window);
   void ReloadShaders();
   virtual void DrawImGui();
@@ -76,7 +81,7 @@ struct Renderer {
   VkCommandPool imm_command_pool_;
   VkCommandBuffer imm_command_buffer_;
   VkCommandPool transfer_command_pool_;
-  VkCommandBuffer transfer_command_buffer_;
+  std::vector<VkCommandBuffer> free_transfer_cmd_buffers_;
   // TODO: remove
   VkFence transfer_fence_;
   VkFence imm_fence_;
@@ -93,6 +98,10 @@ struct Renderer {
 
   void LoadShaders(bool force, bool async);
 
+  tvk::FencePool fence_pool_;
+
+  AsyncTransfer TransferSubmitAsync(std::function<void(VkCommandBuffer cmd)>&& function);
+  void ReturnFence(VkFence fence);
   void ImmediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function);
   tvk::AllocatedImage CreateImage2D(void* data, VkExtent2D size, VkFormat format,
                                     VkImageUsageFlags usage, bool mipmapped = false);

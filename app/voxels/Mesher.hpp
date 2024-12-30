@@ -15,7 +15,7 @@ struct MeshAlgData {
 };
 
 struct MeshData {
-  std::vector<uint64_t>* vertices;
+  std::vector<uint64_t> vertices;
   PaddedChunkMask* mask{};
   int vertex_cnt{};
 };

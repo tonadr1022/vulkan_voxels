@@ -31,6 +31,11 @@ struct Allocator {
                                              VmaMemoryUsage memory_usage,
                                              VmaAllocationCreateFlags flags = 0,
                                              VkMemoryPropertyFlags req_mem_flags = 0) const;
+  [[nodiscard]] AllocatedBuffer CreateStagingBuffer(
+      size_t size, VkBufferUsageFlags usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+      VmaMemoryUsage memory_usage = VMA_MEMORY_USAGE_CPU_ONLY,
+      VmaAllocationCreateFlags flags = VMA_ALLOCATION_CREATE_MAPPED_BIT,
+      VkMemoryPropertyFlags req_mem_flags = 0) const;
   AllocatedBuffer CreateStagingBuffer(
       void* data, size_t size, VkBufferUsageFlags usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
       VmaMemoryUsage memory_usage = VMA_MEMORY_USAGE_CPU_ONLY,
