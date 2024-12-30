@@ -27,9 +27,11 @@ struct VoxelRenderer : public Renderer {
   void DrawImGui() override;
 
  private:
-  void DrawRayMarchCompute();
+  void DrawChunks(VkCommandBuffer cmd, tvk::AllocatedImage& img);
+  void DrawRayMarchCompute(VkCommandBuffer cmd, tvk::AllocatedImage& img);
   void Draw(bool draw_imgui) override;
   const SceneData* scene_data_;
-  tvk::Pipeline voxel_raster_pipeline_;
+  tvk::Pipeline raymarch_pipeline_;
+  tvk::Pipeline chunk_mesh_pipeline_;
   uvec2 draw_dims_;
 };

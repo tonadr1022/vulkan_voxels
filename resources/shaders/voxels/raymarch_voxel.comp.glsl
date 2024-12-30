@@ -20,7 +20,6 @@ struct AABB {
 
 layout(push_constant) uniform block {
     AABB aabb;
-    uvec2 img_dims;
     vec4 cam_dir;
     vec3 cam_pos;
 };
@@ -29,16 +28,19 @@ layout(push_constant) uniform block {
 
 void main() {
     ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
-    if (pos.x >= img_dims.x || pos.y >= img_dims.y) return;
+    ivec2 size = imageSize(img);
+    if (pos.x >= size.x || pos.y >= size.y) return;
     float time = cam_dir.w / 1000.0;
     vec3 camera_dir = cam_dir.xyz;
-    ivec2 size = imageSize(img);
     float aspect_ratio = float(size.x) / float(size.y);
 
+    // camera right
     vec3 vx = normalize(cross(camera_dir, vec3(0.0, 1.0, 0.0)));
+    // camera up
     vec3 vy = normalize(cross(camera_dir, vx));
+    // normalized device coords [0,1]
     vec2 ndc = (vec2(pos) + 0.5) / vec2(size);
-    // vec2 ssc = 2 * (ndc - 0.5);
+    // screen spaces coords [-1,1]
     vec2 ssc = 2 * (ndc - 0.5);
     vec3 ray_dir = normalize(camera_dir + ssc.x * vx * aspect_ratio + ssc.y * vy);
 

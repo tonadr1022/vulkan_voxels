@@ -6,13 +6,39 @@ constexpr const int CS2 = CS * CS;
 constexpr const int CS3 = CS2 * CS;
 
 constexpr const int PCS = 64;
-constexpr const int PCS2 = CS * CS;
-constexpr const int PCS3 = CS2 * CS;
+constexpr const int PCS2 = PCS * PCS;
+constexpr const int PCS3 = PCS2 * PCS;
 
-using ChunkGrid = std::array<uint8_t, static_cast<size_t>(PCS3)>;
+template <i8vec3 Len>
+using Grid3Du8 = std::array<uint8_t, static_cast<std::size_t>(Len.x* Len.y* Len.z)>;
+
+template <i8vec3 Len>
+using HeightMapFloats = std::array<float, static_cast<std::size_t>(Len.x* Len.z)>;
+
+template <i8vec3 Len>
+using HeightMapGrid = std::array<int, static_cast<std::size_t>(Len.x* Len.z)>;
+
+using ChunkPaddedHeightMapFloats = HeightMapFloats<i8vec3{PCS}>;
+using ChunkPaddedHeightMapGrid = HeightMapGrid<i8vec3{PCS}>;
+
 using OpaqueMask = std::array<uint64_t, PCS2>;
-constexpr uint32_t ZXY(int x, int y, int z) { return z + (x * CS) + (y * CS2); }
-constexpr uint32_t XYZ(int x, int y, int z) { return x + (y * CS) + (z * CS2); }
+template <i8vec3 Len>
+constexpr uint32_t ZXY(int x, int y, int z) {
+  return z + (x * Len.x) + (y * Len.x * Len.z);
+}
+
+template <int Len>
+constexpr uint32_t XYZ(int x, int y, int z) {
+  return x + (y * Len) + (z * Len * Len);
+}
+
 // Chunk volume size
-inline void Set(ChunkGrid& grid, int x, int y, int z, uint8_t value) { grid[ZXY(x, y, z)] = value; }
-inline uint8_t Get(ChunkGrid& grid, int x, int y, int z) { return grid[ZXY(x, y, z)]; }
+template <i8vec3 Len>
+inline void SetZXY(Grid3Du8<Len>& grid, int x, int y, int z, uint8_t value) {
+  grid[ZXY<Len>(x, y, z)] = value;
+}
+
+template <i8vec3 Len>
+inline uint8_t GetZXY(const Grid3Du8<Len>& grid, int x, int y, int z) {
+  return grid[ZXY<Len>(x, y, z)];
+}

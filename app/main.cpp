@@ -11,7 +11,11 @@
 #include "application/Window.hpp"
 #include "imgui.h"
 #include "imgui_impl_sdl3.h"
+#include "pch.hpp"
 #include "voxels/Chunk.hpp"
+#include "voxels/Common.hpp"
+#include "voxels/Grid3D.hpp"
+#include "voxels/Mesher.hpp"
 #include "voxels/Terrain.hpp"
 
 namespace {
@@ -165,13 +169,66 @@ void Update(double) { main_cam.Update(); }
 
 }  // namespace
 
+using ChunkVertexVector = std::vector<uint64_t>;
+
+template <typename T>
+struct FixedSizePool {
+  void Init(uint32_t size) {
+    for (uint32_t i = 0; i < size; i++) {
+      free_indices.emplace_back(i);
+    }
+    data.resize(size);
+  }
+  uint32_t Alloc() {
+    assert(!free_indices.empty() && "Cannot exceed fixed size pool alloc size");
+    if (free_indices.empty()) {
+      return UINT32_MAX;
+    }
+    uint32_t idx = free_indices.back();
+    free_indices.pop_back();
+    return idx;
+  }
+
+  T* Get(uint32_t handle) {
+    assert(handle < data.size());
+    return &data[handle];
+  }
+
+  void Free(uint32_t handle) { free_indices.emplace_back(handle); }
+
+  std::vector<uint32_t> free_indices;
+  std::vector<T> data;
+};
+
+constexpr int MaxMeshTasks = 64;
+FixedSizePool<MeshAlgData> mesh_alg_pool;
+FixedSizePool<MeshData> mesh_data_pool;
+
 int main() {
+  mesh_alg_pool.Init(MaxMeshTasks);
+  mesh_data_pool.Init(MaxMeshTasks);
+
+  int seed = 1;
   ZoneScopedN("Run Frame");
   window.Init("Voxel Renderer", 1700, 900);
   renderer.Init(&window);
   Timer timer;
-  Grid3D chunk;
-  gen::FillSphere(chunk.grid);
+  PaddedChunkGrid3D grid;
+  // gen::FillSphere(grid.grid, grid.mask);
+
+  gen::FBMNoise fbm_noise(seed);
+
+  ChunkPaddedHeightMapGrid heights;
+  ChunkPaddedHeightMapFloats height_map_floats;
+  fbm_noise.FillNoise<i8vec3{PCS}>(height_map_floats, {});
+  gen::NoiseToHeights(height_map_floats, heights, {0, 32});
+
+  gen::FillChunk(grid, heights, 1);
+  MeshData data;
+  MeshAlgData alg_data;
+  data.mask = &grid.mask;
+  GenerateMesh(grid.grid.grid, alg_data, data);
+  // gen::FillSphere();
 
   // mesh
 
