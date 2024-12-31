@@ -31,6 +31,8 @@ add_library(stb_image INTERFACE)
 target_include_directories(stb_image SYSTEM INTERFACE stb_image)
 add_library(spirv_reflect STATIC spirv-reflect/spirv_reflect.c)
 target_include_directories(spirv_reflect SYSTEM INTERFACE spirv-reflect)
+add_library(concurrentqueue INTERFACE)
+target_include_directories(concurrentqueue SYSTEM INTERFACE concurrentqueue)
 
 set(IMGUI_BACKEND_SRC
     imgui/backends/imgui_impl_vulkan.cpp

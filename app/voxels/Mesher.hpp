@@ -11,13 +11,14 @@ struct MeshAlgData {
   std::array<uint8_t, CS> right_merged;
   std::array<int, 6> face_vertices_start_indices{};
   std::array<int, 6> face_vertex_lengths{};
+  PaddedChunkMask* mask{};
   int max_vertices{};
 };
 
-struct MeshData {
+struct MesherOutputData {
   std::vector<uint64_t> vertices;
-  PaddedChunkMask* mask{};
   int vertex_cnt{};
+  float mesh_time;
 };
 
-void GenerateMesh(std::span<uint8_t> voxels, MeshAlgData& alg_data, MeshData& mesh_data);
+void GenerateMesh(std::span<uint8_t> voxels, MeshAlgData& alg_data, MesherOutputData& mesh_data);

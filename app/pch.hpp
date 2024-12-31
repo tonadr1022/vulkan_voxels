@@ -27,6 +27,8 @@ using uvec3 = glm::uvec3;
 using uvec2 = glm::uvec2;
 using vec4 = glm::vec4;
 using i8vec3 = glm::i8vec3;
+using uvec4 = glm::uvec4;
+using ivec4 = glm::ivec4;
 
 template <typename T, size_t Size>
 char (*countof_helper(T (&_array_)[Size]))[Size];

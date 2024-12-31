@@ -4,13 +4,15 @@ project(voxel_app)
 
 add_executable(${PROJECT_NAME}
 main.cpp
-voxels/Terrain.cpp
 Util.cpp
+ChunkMeshManager.cpp
 VoxelRenderer.cpp
+StagingBufferPool.cpp
+
+voxels/Terrain.cpp
 voxels/Mesher.cpp
 voxels/Chunk.cpp
-ChunkMeshManager.cpp
-StagingBufferPool.cpp
+voxels/VoxelWorld.cpp
 )
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE WORKING_DIR="${CMAKE_SOURCE_DIR}")
@@ -21,7 +23,7 @@ target_precompile_headers(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/pc
 #
 # target_include_directories(${PROJECT_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 
-target_link_libraries(${PROJECT_NAME} PRIVATE engine FastNoise tracy)
+target_link_libraries(${PROJECT_NAME} PRIVATE engine FastNoise tracy concurrentqueue)
 
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")

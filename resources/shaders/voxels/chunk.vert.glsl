@@ -13,7 +13,17 @@ layout(set = 1, binding = 0) readonly buffer ssbo1 {
 } quads;
 
 layout(location = 0) out vec3 out_pos;
-layout(location = 1) out uint out_material;
+layout(location = 1) out vec3 out_normal;
+layout(location = 2) out uint out_material;
+
+const vec3 normal_lookup[6] = vec3[6](
+        vec3(0.0, 1.0, 0.0),
+        vec3(0.0, -1.0, 0.0),
+        vec3(1.0, 0.0, 0.0),
+        vec3(-1.0, 0.0, 0.0),
+        vec3(0.0, 0.0, 1.0),
+        vec3(0.0, 0.0, -1.0)
+    );
 
 const int flip_lookup[6] = int[6](1, -1, -1, 1, -1, 1);
 
@@ -21,7 +31,7 @@ vec4 GetVertexPos() {
     // unpack chunk offset and face
     // gl_BaseInstance is unused, so use it for chunk position
     ivec3 chunk_offset_pos = ivec3(gl_BaseInstance & 255u, (gl_BaseInstance >> 8) & 255u, (gl_BaseInstance >> 16) & 255u) * 62;
-    chunk_offset_pos = ivec3(0, -60, 0);
+    // chunk_offset_pos = ivec3(0, -60, 0);
     uint face = gl_BaseInstance >> 24;
     // get index within the quad
     int vertex_id = int(gl_VertexIndex & 3u);
@@ -48,11 +58,12 @@ vec4 GetVertexPos() {
 
     out_pos = i_vertex_pos;
     out_material = (data2 & 255u);
+    out_normal = normal_lookup[face];
 
-    vec3 vertex_pos = i_vertex_pos - scene_data.view_pos_int;
+    vec3 vertex_pos = i_vertex_pos - scene_data.view_pos_int.xyz;
     // offset by a little for t-junctions
-    vertex_pos[w_dir] += 0.0007 * flip_lookup[face] * (w_mod * 2 - 1);
-    vertex_pos[h_dir] += 0.0007 * (h_mod * 2 - 1);
+    // vertex_pos[w_dir] += 0.0007 * flip_lookup[face] * (w_mod * 2 - 1);
+    // vertex_pos[h_dir] += 0.0007 * (h_mod * 2 - 1);
 
     return scene_data.world_center_viewproj * vec4(vertex_pos, 1.0);
 }

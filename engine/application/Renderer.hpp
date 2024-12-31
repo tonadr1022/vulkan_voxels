@@ -103,6 +103,7 @@ struct Renderer {
 
   void SetViewportAndScissor(VkCommandBuffer cmd, VkExtent2D extent);
   AsyncTransfer TransferSubmitAsync(std::function<void(VkCommandBuffer cmd)>&& function);
+  void TransferSubmit(std::function<void(VkCommandBuffer cmd)>&& function);
   void ReturnFence(VkFence fence);
   void ImmediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function);
   tvk::AllocatedImage CreateImage2D(void* data, VkExtent2D size, VkFormat format,

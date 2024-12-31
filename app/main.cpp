@@ -1,81 +1,32 @@
-#include <cstddef>
+#include <cstdlib>
 #include <thread>
 
 #include "ChunkMeshManager.hpp"
+#include "MemUsage.hpp"
+#include "Pool.hpp"
 #include "SDL3/SDL_events.h"
+#include "Stats.hpp"
 #include "Util.hpp"
 #include "VoxelRenderer.hpp"
 #include "application/CVar.hpp"
 #include "application/Camera.hpp"
+#include "application/Input.hpp"
 #include "application/Renderer.hpp"
 #include "application/Timer.hpp"
 #include "application/Window.hpp"
 #include "imgui.h"
 #include "imgui_impl_sdl3.h"
 #include "pch.hpp"
-#include "voxels/Chunk.hpp"
-#include "voxels/Common.hpp"
-#include "voxels/Grid3D.hpp"
 #include "voxels/Mesher.hpp"
-#include "voxels/Terrain.hpp"
+#include "voxels/VoxelWorld.hpp"
 
 namespace {
 
-// Track allocations
-size_t allocated_mem = 0;
-size_t alloc_count = 0;
-
-}  // namespace
-
-// Standard new and delete
-void* operator new(size_t size) {
-  void* ptr = std::malloc(size);
-  if (!ptr) {
-    throw std::bad_alloc();
-  }
-  allocated_mem += size;
-  alloc_count++;
-  return ptr;
+std::unique_ptr<VoxelWorld> world;
+void InitWorld() {
+  world = std::make_unique<VoxelWorld>();
+  world->Init();
 }
-
-void* operator new[](size_t size) {
-  void* ptr = std::malloc(size);
-  if (!ptr) {
-    throw std::bad_alloc();
-  }
-  allocated_mem += size;
-  alloc_count++;
-  return ptr;
-}
-
-void operator delete(void* ptr) noexcept {
-  if (!ptr) return;
-  alloc_count--;
-  std::free(ptr);
-}
-
-void operator delete(void* ptr, size_t size) noexcept {
-  if (!ptr) return;
-  allocated_mem -= size;
-  alloc_count--;
-  std::free(ptr);
-}
-
-void operator delete[](void* ptr) noexcept {
-  if (!ptr) return;
-  alloc_count--;
-  std::free(ptr);
-}
-
-void operator delete[](void* ptr, size_t size) noexcept {
-  if (!ptr) return;
-  allocated_mem -= size;
-  alloc_count--;
-  std::free(ptr);
-}
-
-namespace {
-
 VoxelRenderer renderer;
 Window window;
 bool should_quit = false;
@@ -84,15 +35,45 @@ bool draw_imgui = true;
 bool hide_mouse{false};
 bool full_screen{false};
 Camera main_cam;
+vec3 sun_color{1, 1, 1};
+vec3 sun_dir{0, -2, -1};
+vec3 ambient_color{0.1, 0.1, 0.1};
+
+AutoCVarFloat move_speed("camera.speed", "movement speed", 200.f, CVarFlags::EditFloatDrag);
+
+void UpdateCamera(double dt) {
+  vec3 move{0};
+  if (Input::IsKeyDown(SDLK_W) || Input::IsKeyDown(SDLK_I)) {
+    move.x++;
+  }
+  if (Input::IsKeyDown(SDLK_S) || Input::IsKeyDown(SDLK_K)) {
+    move.x--;
+  }
+  if (Input::IsKeyDown(SDLK_A) || Input::IsKeyDown(SDLK_J)) {
+    move.z--;
+  }
+  if (Input::IsKeyDown(SDLK_D) || Input::IsKeyDown(SDLK_L)) {
+    move.z++;
+  }
+  if (Input::IsKeyDown(SDLK_Y) || Input::IsKeyDown(SDLK_R)) {
+    move.y++;
+  }
+  if (Input::IsKeyDown(SDLK_H) || Input::IsKeyDown(SDLK_F)) {
+    move.y--;
+  }
+  auto dir = (main_cam.front * move.x) + (main_cam.right * move.z) + move.y * vec3(0, 1, 0);
+  main_cam.position += dir * move_speed.GetFloat() * static_cast<float>(dt);
+}
 
 void OnEvent(const SDL_Event& e) {
   const auto& imgui_io = ImGui::GetIO();
   if ((e.type == SDL_EVENT_KEY_DOWN || e.type == SDL_EVENT_KEY_UP) &&
       imgui_io.WantCaptureKeyboard) {
-    // ImGui_ImplSDL3_ProcessEvent(&e);
+    ImGui_ImplSDL3_ProcessEvent(&e);
     return;
   }
   if (e.type == SDL_EVENT_KEY_DOWN) {
+    Input::SetKeyPressed(e.key.key, true);
     auto sym = e.key.key;
     if (sym == SDLK_G && e.key.mod & SDL_KMOD_ALT) {
       draw_imgui = !draw_imgui;
@@ -118,37 +99,79 @@ void OnEvent(const SDL_Event& e) {
       full_screen = !full_screen;
       SDL_SetWindowFullscreen(window.GetContext(), full_screen & SDL_WINDOW_FULLSCREEN);
     } else if (sym == SDLK_F5) {
-      auto path = util::GetScreenshotPath(std::string(GET_PATH("screenshot")), true);
+      auto path = util::GetScreenshotPath(
+          std::string(GET_PATH("local_screenshots" PATH_SEP "screenshot")), true);
       renderer.Screenshot(path);
       fmt::println("Saved screenshot to {}", path);
+    } else if (sym == SDLK_F10) {
+      InitWorld();
     }
+  } else if (e.type == SDL_EVENT_KEY_UP) {
+    Input::SetKeyPressed(e.key.key, false);
   } else if (e.type == SDL_EVENT_QUIT) {
     should_quit = true;
   } else if (e.type == SDL_EVENT_WINDOW_MINIMIZED) {
     paused = true;
   } else if (e.type == SDL_EVENT_WINDOW_HIDDEN) {
     paused = false;
+  } else if ((e.type == SDL_EVENT_MOUSE_MOTION && hide_mouse)) {
+    main_cam.UpdateRotation(e.motion.xrel, -e.motion.yrel);
   }
 
-  if (e.type != SDL_EVENT_MOUSE_MOTION || hide_mouse) {
-    main_cam.OnEvent(e);
-  }
   ImGui_ImplSDL3_ProcessEvent(&e);
 }
 
+AutoCVarFloat fake_delay("misc.fake_delay", "Fake Delay", 0, CVarFlags::EditFloatDrag);
+
 struct Stats {
+  double tot_mesh_time{};
+  size_t tot_meshes_made{};
   double frame_time{};
-  void DrawImGui() const {
-    ImGui::Text("Memory usage: %zu Kb", allocated_mem / 1024);
-    ImGui::Text("Memory Allocations: %zu Kb", alloc_count);
-    ImGui::Text("Frame Time: %f", frame_time);
+  void DrawImGui(double dt) const {
+    static RollingAvgBuffer frame_times(10);
+    frame_times.Add(dt);
+    static float avg = frame_times.Avg();
+    int interval = 12;
+    static int i = 0;
+    if (i++ > interval) {
+      i = 0;
+      avg = frame_times.Avg();
+    }
+    ImGui::Text("Meshes made total: %ld", tot_meshes_made);
+    ImGui::Text("Avg mesh time %f us", tot_mesh_time / tot_meshes_made);
+    ImGui::Text("Avg frame time %f ms / %f fps", avg, 1.f / avg);
+    // static ImPlotAxisFlags flags = ImPlotAxisFlags_NoTickLabels;
+    // static float t = 0;
+    // t += dt;
+    // frame_times.Add(t, frame_time);
+    // static float history = 10.f;
+    // ImGui::SliderFloat("History", &history, 1, 300, "%.1f s");
+    // if (ImPlot::BeginPlot("##Scrolling", ImVec2(-1, 150))) {
+    //   ImPlot::SetupAxes(nullptr, nullptr, flags, flags);
+    //   ImPlot::SetupAxisLimits(ImAxis_X1, t - history, t, ImGuiCond_Always);
+    //   ImPlot::SetupAxisLimits(ImAxis_Y1, 0, 1);
+    //   ImPlot::SetNextFillStyle(IMPLOT_AUTO_COL, 0.5f);
+    //   ImPlot::PlotShaded("Frame Times", &frame_times.data[0].x, &frame_times.data[0].y,
+    //                      frame_times.data.size(), -INFINITY, 0, frame_times.offset,
+    //                      sizeof(vec2));
+    //   ImPlot::EndPlot();
+    // }
+    ImGui::Text("Curr RSS %ld MB, Peak %ld", getCurrentRSS() / 1024 / 1024, getPeakRSS());
+    ImGui::Text("Real frame time %f ms / %f fps", frame_time, 1.f / frame_time);
   }
+
+ private:
 } stats;
 
-void DrawImGui() {
+void DrawImGui(double dt) {
   if (ImGui::Begin("Voxel Renderer")) {
     if (ImGui::CollapsingHeader("Stats", ImGuiTreeNodeFlags_DefaultOpen)) {
-      stats.DrawImGui();
+      world->DrawImGuiStats();
+      stats.DrawImGui(dt);
+      if (ImGui::TreeNodeEx("Chunk Stats", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ChunkMeshManager::Get().DrawImGuiStats();
+        ImGui::TreePop();
+      }
     }
     if (ImGui::CollapsingHeader("Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
       CVarSystem::Get().DrawImGuiEditor();
@@ -159,144 +182,41 @@ void DrawImGui() {
     if (ImGui::CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen)) {
       ImGui::Text("Position %f %f %f", main_cam.position.x, main_cam.position.y,
                   main_cam.position.z);
-      auto dir = main_cam.GetLookDirection();
+      auto dir = main_cam.front;
       ImGui::Text("Direction %f %f %f", dir.x, dir.y, dir.z);
     }
-    ImGui::End();
   }
+  ImGui::End();
 }
 
-void Update(double) {
+void Update(double dt) {
   ZoneScoped;
-  main_cam.Update();
+  UpdateCamera(dt);
+  world->Update();
 }
 
 using ChunkVertexVector = std::vector<uint64_t>;
 
-template <typename T>
-struct FixedSizePtrPool {
-  void Init(uint32_t size) {
-    data.resize(size);
-    free_list.reserve(size);
-    for (uint32_t i = 0; i < size; i++) {
-      free_list.emplace_back(i);
-    }
-  }
-
-  uint32_t Alloc() {
-    assert(!free_list.empty());
-    auto idx = free_list.back();
-    free_list.pop_back();
-    if (data[idx] == nullptr) {
-      data[idx] = std::make_unique<T>();
-    }
-    return idx;
-  }
-  T* Get(uint32_t handle) {
-    assert(handle < data.size());
-    return data[handle].get();
-  }
-
-  void Free(uint32_t handle) { free_list.emplace_back(handle); }
-
-  std::vector<std::unique_ptr<T>> data;
-  std::vector<uint32_t> free_list;
-};
-
-template <typename T>
-struct FixedSizePool {
-  void Init(uint32_t size) {
-    data.resize(size, {});
-    free_list.resize(size);
-    for (uint32_t i = 0; i < size; i++) {
-      free_list[i] = i + 1;
-    }
-    // end of free list
-    free_list[size - 1] = -1;
-    // first free slot
-    free_head = 0;
-  }
-
-  T* Alloc() {
-    if (free_head == -1) {
-      return nullptr;
-    }
-    uint32_t curr = free_head;
-    free_head = free_list[free_head];
-    return &data[curr];
-  }
-
-  void Free(T* obj) {
-    assert(obj >= data.data() && obj < data.data() + data.size());
-    uint32_t idx = obj - data.data();
-    free_list[idx] = free_head;
-    free_head = idx;
-  }
-
-  int32_t free_head = -1;
-  std::vector<uint32_t> free_list;
-  std::vector<T> data;
-};
-
-constexpr int MaxMeshTasks = 64;
+constexpr int MaxMeshTasks = 256;
 }  // namespace
 
 int main() {
   FixedSizePtrPool<MeshAlgData> mesh_alg_pool;
-  FixedSizePool<MeshData> mesh_data_pool;
+  FixedSizePool<MesherOutputData> mesh_data_pool;
   mesh_alg_pool.Init(MaxMeshTasks);
   mesh_data_pool.Init(MaxMeshTasks);
 
   window.Init("Voxel Renderer", 1700, 900);
   renderer.Init(&window);
-  Timer timer;
-  PaddedChunkGrid3D grid;
-  // gen::FillSphere(grid.grid, grid.mask);
+  InitWorld();
 
-  // int seed = 1;
-  // ChunkPaddedHeightMapGrid heights;
-  // ChunkPaddedHeightMapFloats height_map_floats;
-  // gen::FBMNoise fbm_noise(seed);
-  // fbm_noise.FillNoise<i8vec3{PCS}>(height_map_floats, {});
-  // gen::NoiseToHeights(height_map_floats, heights, {0, 32});
-
-  // gen::FillChunk(grid, heights, 1);
-  gen::FillSolid(grid, 1);
-  MeshData* data = mesh_data_pool.Alloc();
-  auto alg_data_alloc = mesh_alg_pool.Alloc();
-
-  MeshAlgData* alg_data = mesh_alg_pool.Get(alg_data_alloc);
-  data->mask = &grid.mask;
-
-  assert(grid.ValidateBitmask());
-  GenerateMesh(grid.grid.grid, *alg_data, *data);
-  ivec3 chunk_pos = {0, 0, 0};
-  std::vector<ChunkMeshManager::ChunkMeshUpload> uploads;
-  if (data->vertex_cnt) {
-    for (int i = 0; i < 6; i++) {
-      if (alg_data->face_vertex_lengths[i]) {
-        uint32_t base_instance =
-            (i << 24) | (chunk_pos.z << 16) | (chunk_pos.y << 16) | (chunk_pos.x);
-        ChunkMeshManager::ChunkMeshUpload u;
-        u.count = alg_data->face_vertex_lengths[i];
-        fmt::println("base_instance {}, count {}", base_instance, u.count);
-        u.first_instance = base_instance;
-        u.data = &data->vertices[alg_data->face_vertices_start_indices[i]];
-        uploads.emplace_back(u);
-      }
-    }
-    ChunkMeshManager::Get().UploadChunkMeshes(uploads);
-  }
-
-  mesh_data_pool.Free(data);
-  mesh_alg_pool.Free(alg_data_alloc);
-
-  // mesh
-
-  main_cam.position = vec3(0, 0, 2);
+  main_cam.position = vec3(-700, 2250, -600);
+  // main_cam.position = vec3(0, 0, 2);
   main_cam.LookAt({0, 0, 0});
   renderer.vsettings.aabb.min = vec3{-0.5};
   renderer.vsettings.aabb.max = vec3{0.5};
+
+  Timer timer;
   double last_time = timer.ElapsedMS();
   while (!should_quit) {
     ZoneScopedN("Frame");
@@ -315,18 +235,24 @@ int main() {
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
       continue;
     }
+    if (fake_delay.Get() > 0.0000001f) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<int>(fake_delay.Get())));
+    }
     Update(dt);
 
     if (draw_imgui) {
       ZoneScopedN("ImGui");
       window.StartImGuiFrame();
-      DrawImGui();
+      DrawImGui(dt);
       window.EndImGuiFrame();
     }
 
     SceneData scene_data;
-    scene_data.cam_dir = main_cam.GetLookDirection();
+    scene_data.cam_dir = main_cam.front;
     scene_data.cam_pos = main_cam.position;
+    scene_data.sun_color = sun_color;
+    scene_data.sun_dir = sun_dir;
+    scene_data.ambient_color = ambient_color;
     scene_data.time = time;
     renderer.Draw(&scene_data, draw_imgui);
     // static int i = 0;
@@ -340,6 +266,7 @@ int main() {
     //   ChunkMeshManager::Get().UploadChunkMeshes(uploads);
     //   stats.frame_time = dt;
     // }
+    stats.frame_time = dt;
   }
   renderer.Cleanup();
 }

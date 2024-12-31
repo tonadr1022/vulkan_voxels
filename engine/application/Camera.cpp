@@ -1,85 +1,31 @@
 #include "Camera.hpp"
 
-#include "SDL3/SDL_events.h"
 #include "glm/ext/matrix_transform.hpp"
 #define GLM_ENABLE_EXPERIMENTAL
 #include "glm/gtx/quaternion.hpp"
 
-void Camera::Update() {
-  glm::mat4 rot = GetRotationMat();
-  position += glm::vec3(rot * glm::vec4(glm::vec3(velocity.x, 0, velocity.z) * move_speed_mult, 0));
-  position += glm::vec3(0, velocity.y * move_speed_mult, 0);
-}
-
-bool Camera::OnEvent(const SDL_Event& e) {
-  bool handled = false;
-  if (e.type == SDL_EVENT_KEY_DOWN) {
-    auto key = e.key.key;
-    if (key == SDLK_W || key == SDLK_I) {
-      handled = true;
-      velocity.z = -1;
-    } else if (key == SDLK_S || key == SDLK_K) {
-      handled = true;
-      velocity.z = 1;
-    } else if (key == SDLK_A || key == SDLK_J) {
-      handled = true;
-      velocity.x = -1;
-    } else if (key == SDLK_D || key == SDLK_L) {
-      handled = true;
-      velocity.x = 1;
-    } else if (key == SDLK_Y || key == SDLK_R) {
-      handled = true;
-      velocity.y = 1;
-    } else if (key == SDLK_H || key == SDLK_F) {
-      handled = true;
-      velocity.y = -1;
-    }
-  } else if (e.type == SDL_EVENT_KEY_UP) {
-    auto key = e.key.key;
-    if (key == SDLK_W || key == SDLK_I || key == SDLK_S || key == SDLK_K) {
-      handled = true;
-      velocity.z = 0;
-    } else if (key == SDLK_A || key == SDLK_J || key == SDLK_D || key == SDLK_L) {
-      handled = true;
-      velocity.x = 0;
-    } else if (key == SDLK_Y || key == SDLK_R || key == SDLK_H || key == SDLK_F) {
-      handled = true;
-      velocity.y = 0;
-    }
-  } else if (e.type == SDL_EVENT_MOUSE_MOTION) {
-    handled = true;
-    yaw -= static_cast<float>(e.motion.xrel / look_speed_inv);
-    pitch -= static_cast<float>(e.motion.yrel / look_speed_inv);
-  }
-  return handled;
-}
-
-glm::mat4 Camera::GetView() const {
-  glm::mat4 cam_translation = glm::translate(glm::mat4{1}, position);
-  return glm::inverse(cam_translation * GetRotationMat());
-}
+glm::mat4 Camera::GetView() const { return glm::lookAt(position, position + front, up); }
 
 void Camera::LookAt(const glm::vec3& pos) {
   glm::vec3 look_dir = glm::normalize(pos - position);
-  pitch = std::asin(look_dir.y);
-  yaw = -std::atan2(look_dir.x, -look_dir.z);
+  pitch = glm::degrees(std::asin(glm::clamp(look_dir.y, -1.0f, 1.0f)));
+  yaw = glm::degrees(std::atan2(look_dir.z, look_dir.x));
+  UpdateVectors();
 }
 
-glm::mat4 Camera::GetRotationMat() const {
-  glm::quat pitch_rot = glm::angleAxis(pitch, glm::vec3{1, 0, 0});
-  glm::quat yaw_rot = glm::angleAxis(yaw, glm::vec3{0, 1, 0});
-  return glm::toMat4(yaw_rot) * glm::toMat4(pitch_rot);
+void Camera::UpdateVectors() {
+  glm::vec3 f;
+  f.x = cos(glm::radians(yaw)) * cos(glm::radians(pitch));
+  f.y = sin(glm::radians(pitch));
+  f.z = sin(glm::radians(yaw)) * cos(glm::radians(pitch));
+  front = glm::normalize(f);
+  right = glm::normalize(glm::cross(front, WorldUp));
+  up = glm::normalize(glm::cross(right, front));
 }
 
-glm::vec3 Camera::GetLookDirection() const {
-  glm::vec3 direction = glm::vec3(glm::cos(pitch) * glm::sin(yaw),  // x-component
-                                  glm::sin(pitch),                  // y-component (up)
-                                  glm::cos(pitch) * glm::cos(yaw)   // z-component
-  );
-  return glm::normalize(direction);
-  glm::quat pitch_rot = glm::angleAxis(pitch, glm::vec3{1, 0, 0});
-  glm::quat yaw_rot = glm::angleAxis(yaw, glm::vec3{0, 1, 0});
-  glm::quat rotation = yaw_rot * pitch_rot;
-  glm::vec3 forward = glm::normalize(rotation * glm::vec3(0, 0, 1));
-  return forward;
+void Camera::UpdateRotation(float mouse_x_off, float mouse_y_off) {
+  yaw += mouse_x_off * sensitivity;
+  pitch += mouse_y_off * sensitivity;
+  pitch = glm::clamp(pitch, -89.9f, 89.9f);
+  UpdateVectors();
 }

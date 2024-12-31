@@ -8,16 +8,19 @@
 #include "StagingBufferPool.hpp"
 #include "VoxelRenderer.hpp"
 #include "application/Renderer.hpp"
+#include "imgui.h"
 #include "voxels/Common.hpp"
 
 void ChunkMeshManager::Cleanup() {}
 
 void ChunkMeshManager::Init(VoxelRenderer* renderer) {
   renderer_ = renderer;
-  chunk_quad_buffer_.Init(MaxQuads, sizeof(uint64_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+  chunk_quad_buffer_.Init(MaxQuads, QuadSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                           &renderer_->allocator_);
+  auto initial_draw_indirect_buf_size = sizeof(VkDrawIndexedIndirectCommand) * MaxDrawCmds;
   draw_indirect_staging_buf_ =
-      renderer_->allocator_.CreateStagingBuffer(sizeof(VkDrawIndexedIndirectCommand) * MaxDrawCmds);
+      renderer_->allocator_.CreateStagingBuffer(initial_draw_indirect_buf_size);
+  MakeDrawIndirectGPUBuf(initial_draw_indirect_buf_size);
   renderer_->main_deletion_queue_.PushFunc([this]() {
     if (draw_indir_gpu_buf_.buffer) {
       renderer_->allocator_.DestroyBuffer(draw_indir_gpu_buf_);
@@ -61,15 +64,18 @@ void ChunkMeshManager::UploadChunkMeshes(std::span<ChunkMeshUpload> uploads) {
 
   size_t tot_upload_size_bytes{0};
   for (auto& [count, first_instance, data] : uploads) {
-    auto size_bytes = count * sizeof(uint64_t);
+    if (!count) continue;
+    auto size_bytes = count * QuadSize;
     tot_upload_size_bytes += size_bytes;
-    ChunkMeshUploadInt upload{};
+    ChunkMeshUploadInternal upload{};
     upload.first_instance = first_instance;
     upload.vertex_count = count;
-    upload.quad_buf_alloc_handle =
-        chunk_quad_buffer_.InitCopy(size_bytes, data, upload.base_vertex);
+    uint32_t offset;
+    upload.quad_buf_alloc_handle = chunk_quad_buffer_.AddCopy(size_bytes, data, offset);
+    upload.base_vertex = (offset / QuadSize) << 2;
     new_mesh_upload_batch.data.uploads.emplace_back(upload);
   }
+  if (!tot_upload_size_bytes) return;
   std::unique_ptr<tvk::AllocatedBuffer> buf =
       renderer_->staging_buffer_pool_.GetBuffer(tot_upload_size_bytes);
   chunk_quad_buffer_.CopyToStaging(*buf);
@@ -79,7 +85,7 @@ void ChunkMeshManager::UploadChunkMeshes(std::span<ChunkMeshUpload> uploads) {
     new_mesh_upload_batch.transfer =
         renderer_->TransferSubmitAsync([this, staging](VkCommandBuffer cmd) {
           TracyVkZone(renderer_->graphics_queue_ctx_, cmd, "Upload chunk quads");
-          chunk_quad_buffer_.FlushToGPU(*staging, cmd);
+          chunk_quad_buffer_.ExecuteCopy(*staging, cmd);
           // transfer ownership to renderer?
         });
     new_mesh_upload_batch.staging_buf = std::move(buf);
@@ -93,7 +99,7 @@ ChunkMeshManager& ChunkMeshManager::Get() {
 }
 
 void ChunkMeshManager::Update() {
-  ZoneScoped;
+  ZoneScopedN("ChunkMeshManager Update");
   for (auto it = pending_mesh_uploads_.begin(); it != pending_mesh_uploads_.end();) {
     auto& upload = *it;
     auto status = vkGetFenceStatus(renderer_->device_, upload.transfer.fence);
@@ -111,7 +117,7 @@ void ChunkMeshManager::Update() {
         cmd.instanceCount = 1;
         cmd.firstIndex = 0;
         cmd.firstInstance = b.first_instance;
-        cmd.vertexOffset = (b.base_vertex / sizeof(uint64_t)) << 2;
+        cmd.vertexOffset = b.base_vertex;
         draw_indir_cmds_.emplace_back(cmd);
       }
       renderer_->free_transfer_cmd_buffers_.emplace_back(upload.transfer.cmd);
@@ -122,27 +128,43 @@ void ChunkMeshManager::Update() {
       it++;
     }
   }
+
+  // TODO: this is bad
   if (!draw_indir_cmds_.empty()) {
     ZoneScopedN("draw indirect update");
     auto copy_size = sizeof(VkDrawIndexedIndirectCommand) * draw_indir_cmds_.size();
     auto* data = reinterpret_cast<VkDrawIndexedIndirectCommand*>(draw_indirect_staging_buf_.data);
-    memcpy(data, draw_indir_cmds_.data(), copy_size);
+    {
+      ZoneScopedN("memcpy to staging");
+      memcpy(data, draw_indir_cmds_.data(), copy_size);
+    }
     if (copy_size > draw_indir_gpu_buf_.size) {
       auto old = draw_indir_gpu_buf_;
       renderer_->GetCurrentFrame().deletion_queue.PushFunc(
           [this, old]() { renderer_->allocator_.DestroyBuffer(old); });
-      draw_indir_gpu_buf_ = renderer_->allocator_.CreateBuffer(
-          copy_size,
-          VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-          VMA_MEMORY_USAGE_GPU_ONLY);
+      MakeDrawIndirectGPUBuf(
+          static_cast<size_t>(static_cast<double>(draw_indir_gpu_buf_.size) * 1.5));
     }
-    renderer_->ImmediateSubmit([&](VkCommandBuffer cmd) {
-      VkBufferCopy copy{};
-      copy.dstOffset = 0;
-      copy.srcOffset = 0;
-      copy.size = copy_size;
-      vkCmdCopyBuffer(cmd, draw_indirect_staging_buf_.buffer, draw_indir_gpu_buf_.buffer, 1, &copy);
-    });
+    {
+      ZoneScopedN("Submit");
+      renderer_->ImmediateSubmit([&](VkCommandBuffer cmd) {
+        VkBufferCopy copy{};
+        copy.dstOffset = 0;
+        copy.srcOffset = 0;
+        copy.size = copy_size;
+        vkCmdCopyBuffer(cmd, draw_indirect_staging_buf_.buffer, draw_indir_gpu_buf_.buffer, 1,
+                        &copy);
+      });
+    }
   }
+}
+
+void ChunkMeshManager::DrawImGuiStats() { ImGui::Text("Draw cmds: %ld", draw_indir_cmds_.size()); }
+void ChunkMeshManager::MakeDrawIndirectGPUBuf(size_t size) {
+  ZoneScoped;
+  draw_indir_gpu_buf_ = renderer_->allocator_.CreateBuffer(size,
+                                                           VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
+                                                               VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                                                               VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                                                           VMA_MEMORY_USAGE_GPU_ONLY);
 }

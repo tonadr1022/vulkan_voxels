@@ -1,6 +1,11 @@
 #include "Util.hpp"
 
 #include <filesystem>
+
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
 namespace util {
 
 std::string GetCacheFilePath(const std::string& app_name) {
@@ -27,4 +32,11 @@ std::string ExecCommand(const std::string& command) {
   }
   return result;
 }
+void WriteImage(std::string_view path, const ImageData& data) {
+  if (stbi_write_png(static_cast<const char*>(path.data()), data.w, data.h, data.channels,
+                     data.data, data.row_pitch) != 1) {
+    fmt::println("Failed to write image: {}", path);
+  }
+}
+
 }  // namespace util

@@ -14,6 +14,7 @@
 #include "VkBootstrap.h"
 #include "application/CVar.hpp"
 #include "application/Window.hpp"
+#include "fmt/base.h"
 #include "glm/packing.hpp"
 #include "imgui.h"
 #include "imgui_impl_vulkan.h"
@@ -25,7 +26,7 @@
 #include "tvk/Util.hpp"
 
 struct Settings {
-  inline static AutoCVarInt vsync{"renderer.vsync", "display vsync", 1, CVarFlags::EditCheckbox};
+  inline static AutoCVarInt vsync{"renderer.vsync", "display vsync", 0, CVarFlags::EditCheckbox};
 };
 
 void Renderer::Init(Window* window) {
@@ -52,6 +53,38 @@ void Renderer::Init(Window* window) {
 }
 
 void Renderer::ReturnFence(VkFence fence) { fence_pool_.AddFreeFence(fence); }
+
+void Renderer::TransferSubmit(std::function<void(VkCommandBuffer cmd)>&& function) {
+  VkFence fence = fence_pool_.GetFence();
+  VK_CHECK(vkResetFences(device_, 1, &fence));
+  if (free_transfer_cmd_buffers_.empty()) {
+    VkCommandBuffer buf;
+    VkCommandBufferAllocateInfo cmd_alloc_info =
+        tvk::init::CommandBufferAllocateInfo(transfer_command_pool_);
+    VK_CHECK(vkAllocateCommandBuffers(device_, &cmd_alloc_info, &buf));
+    free_transfer_cmd_buffers_.emplace_back(buf);
+  }
+  VkCommandBuffer cmd = free_transfer_cmd_buffers_.back();
+  free_transfer_cmd_buffers_.pop_back();
+  VK_CHECK(vkResetCommandBuffer(cmd, 0));
+
+  VkCommandBufferBeginInfo cmd_begin_info =
+      tvk::init::CommandBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+  VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
+
+  function(cmd);
+
+  VK_CHECK(vkEndCommandBuffer(cmd));
+
+  VkCommandBufferSubmitInfo cmd_info = tvk::init::CommandBufferSubmitInfo(cmd);
+  VkSubmitInfo2 submit = tvk::init::SubmitInfo(&cmd_info, nullptr, nullptr);
+
+  // submit command buffer to the queue and execute it.
+  VK_CHECK(vkQueueSubmit2(transfer_queue_, 1, &submit, fence));
+  vkWaitForFences(device_, 1, &fence, true, UINT64_MAX);
+
+  fence_pool_.AddFreeFence(fence);
+}
 
 AsyncTransfer Renderer::TransferSubmitAsync(std::function<void(VkCommandBuffer cmd)>&& function) {
   AsyncTransfer transfer;
@@ -368,6 +401,7 @@ void Renderer::CreatePipeline(tvk::Pipeline* pipeline, bool force) {
     if (!dirty) return;
   }
 #endif
+
   pipeline->Create(device_, GetCurrentFrame().deletion_queue, set_cache_);
 }
 
@@ -641,7 +675,62 @@ bool Renderer::AcquireNextImage() {
                             GetCurrentFrame().swapchain_semaphore, nullptr, &swapchain_img_idx_);
   return acquire_next_img_result != VK_ERROR_OUT_OF_DATE_KHR;
 }
-void Renderer::Screenshot(const std::string&) { assert(0 && "unimplemented"); }
+void Renderer::Screenshot(const std::string& path) {
+  tvk::AllocatedImage dst_img{};
+  ImmediateSubmit([this, &dst_img](VkCommandBuffer cmd) {
+    dst_img.extent = VkExtent3D{swapchain_.extent.width, swapchain_.extent.height, 1};
+    auto create_info = tvk::init::ImageCreateInfo(VK_FORMAT_R8G8B8A8_UNORM,
+                                                  VK_IMAGE_USAGE_TRANSFER_DST_BIT, dst_img.extent);
+    create_info.tiling = VK_IMAGE_TILING_LINEAR;
+    create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    VmaAllocationCreateInfo alloc_info{};
+    alloc_info.usage = VMA_MEMORY_USAGE_GPU_TO_CPU;
+    alloc_info.requiredFlags =
+        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
+    allocator_.CreateImage(dst_img, create_info, alloc_info);
+    // make dst image writeable and swapchain img readable
+    VkImageMemoryBarrier2 barriers[] = {
+        tvk::init::ImageBarrier(dst_img.image, VK_IMAGE_LAYOUT_UNDEFINED, 0, 0,
+                                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT),
+        tvk::init::ImageBarrier(swapchain_.images[swapchain_img_idx_],
+                                VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, 0, 0,
+                                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT),
+    };
+    tvk::PipelineBarrier(cmd, 0, {}, barriers);
+    tvk::util::BlitImage(cmd, swapchain_.images[swapchain_img_idx_], dst_img.image,
+                         swapchain_.extent, swapchain_.extent);
+    // make dst image readable and in general layout to be mapped
+    tvk::PipelineBarrier(
+        cmd, 0,
+        tvk::init::ImageBarrier(dst_img.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+                                VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                VK_ACCESS_TRANSFER_READ_BIT));
+  });
+
+  VkImageSubresource subresource{};
+  subresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  VkSubresourceLayout subresource_layout{};
+  vkGetImageSubresourceLayout(device_, dst_img.image, &subresource, &subresource_layout);
+  void* data;
+  VK_CHECK(vmaMapMemory(allocator_.GetAllocator(), dst_img.allocation, &data));
+  auto* img_data = static_cast<unsigned char*>(data);
+  img_data += subresource_layout.offset;
+  ImageData save_data{.w = static_cast<int>(dst_img.extent.width),
+                      .h = static_cast<int>(dst_img.extent.height),
+                      .channels = 4,
+                      .row_pitch = static_cast<int>(subresource_layout.rowPitch),
+                      .data = img_data};
+  // need to copy the string
+  auto save_path = std::string(path);
+  std::thread([this, save_path, save_data, dst_img]() {
+    ::util::WriteImage(save_path, save_data);
+    vmaUnmapMemory(allocator_.GetAllocator(), dst_img.allocation);
+    allocator_.DestroyImageAndView(dst_img);
+  }).detach();
+}
 
 void Renderer::RegisterComputePipelines(
     std::span<std::pair<tvk::Pipeline*, std::string>> pipelines) {

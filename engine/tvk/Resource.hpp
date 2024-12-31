@@ -3,27 +3,9 @@
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan_core.h>
 
+#include "Types.hpp"
+
 namespace tvk {
-
-struct AllocatedBuffer {
-  VkBuffer buffer{VK_NULL_HANDLE};
-  size_t size{0};
-  VmaAllocation allocation{};
-  void* data{};
-  [[nodiscard]] VkDescriptorBufferInfo GetInfo(VkDeviceSize offset = 0) const {
-    assert(buffer != VK_NULL_HANDLE);
-    return {.buffer = buffer, .offset = offset, .range = size};
-  }
-};
-
-struct AllocatedImage {
-  VkImage image;
-  VkImageView view;
-  VmaAllocation allocation;
-  VkExtent3D extent;
-  VkFormat format;
-  [[nodiscard]] VkExtent2D Extent2D() const;
-};
 
 struct Allocator {
   void Init(VkDevice device, VmaAllocator allocator);

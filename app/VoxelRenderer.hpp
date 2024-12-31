@@ -7,6 +7,9 @@
 struct SceneData {
   vec3 cam_dir;
   vec3 cam_pos;
+  vec3 sun_dir;
+  vec3 sun_color;
+  vec3 ambient_color;
   float time;
 };
 
@@ -25,7 +28,11 @@ struct SceneDataUBO {
   mat4 viewproj;
   mat4 world_center_view;
   mat4 world_center_viewproj;
-  ivec3 view_pos_int;
+  ivec4 view_pos_int;
+  vec4 sun_dir;
+  vec4 sun_color;
+  vec4 cam_dir;
+  vec3 ambient_color;
 };
 
 struct VoxelRenderer : public Renderer {

@@ -190,10 +190,10 @@ struct GPUBufferAllocator {
                                 VMA_MEMORY_USAGE_GPU_ONLY);
   }
 
-  uint32_t InitCopy(uint32_t size_bytes, void* data, uint32_t& offset, UserT user_data = {}) {
+  uint32_t AddCopy(uint32_t size_bytes, void* data, uint32_t& offset, UserT user_data = {}) {
     ZoneScoped;
     auto handle = buffer_allocator.Allocate(size_bytes, offset, user_data);
-    copies.emplace_back(0, offset, size_bytes);
+    copies.emplace_back(curr_copies_tot_size_bytes, offset, size_bytes);
     copy_data_ptrs.emplace_back(data);
     curr_copies_tot_size_bytes += size_bytes;
     return handle;
@@ -210,7 +210,7 @@ struct GPUBufferAllocator {
     }
   }
 
-  void FlushToGPU(tvk::AllocatedBuffer& staging, VkCommandBuffer cmd) {
+  void ExecuteCopy(tvk::AllocatedBuffer& staging, VkCommandBuffer cmd) {
     ZoneScoped;
     vkCmdCopyBuffer(cmd, staging.buffer, device_buffer.buffer, copies.size(), copies.data());
     copies.clear();

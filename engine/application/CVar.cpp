@@ -150,8 +150,8 @@ class CVarSystemImpl : public CVarSystem {
         static_cast<uint32_t>(p->flags) & static_cast<uint32_t>(CVarFlags::EditReadOnly);
     const bool is_checkbox =
         static_cast<uint32_t>(p->flags) & static_cast<uint32_t>(CVarFlags::EditCheckbox);
-    // const bool is_drag =
-    //     static_cast<uint32_t>(p->flags) & static_cast<uint32_t>(CVarFlags::EditFloatDrag);
+    const bool is_drag =
+        static_cast<uint32_t>(p->flags) & static_cast<uint32_t>(CVarFlags::EditFloatDrag);
 
     switch (p->type) {
       case CVarType::Int:
@@ -182,7 +182,14 @@ class CVarSystemImpl : public CVarSystem {
         } else {
           ImGuiLabel(p->name.c_str(), text_width);
           ImGui::PushID(p);
-          ImGui::InputDouble("", GetCVarArray<double>().GetCurrentPtr(p->array_idx));
+          if (is_drag) {
+            float d = GetCVarArray<double>().GetCurrent(p->array_idx);
+            if (ImGui::DragFloat("", &d)) {
+              *GetCVarArray<double>().GetCurrentPtr(p->array_idx) = static_cast<double>(d);
+            }
+          } else {
+            ImGui::InputDouble("", GetCVarArray<double>().GetCurrentPtr(p->array_idx));
+          }
           ImGui::PopID();
         }
         break;
