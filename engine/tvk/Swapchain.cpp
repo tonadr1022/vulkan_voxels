@@ -78,8 +78,9 @@ void CreateSwapchain(Swapchain& result, VkPhysicalDevice physicalDevice, VkDevic
   VkSurfaceCapabilitiesKHR surface_caps;
   VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &surface_caps));
 
-  VkSwapchainKHR swapchain = CreateSwapchain(device, surface, surface_caps, familyIndex, format,
-                                             new_width, new_height, vsync, oldSwapchain);
+  VkSwapchainKHR swapchain = CreateSwapchain(
+      device, surface, surface_caps, familyIndex, format, surface_caps.minImageExtent.width,
+      surface_caps.minImageExtent.height, vsync, oldSwapchain);
   assert(swapchain);
 
   uint32_t image_count = 0;
