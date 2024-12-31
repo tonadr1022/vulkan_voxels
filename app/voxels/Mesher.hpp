@@ -9,8 +9,8 @@ struct MeshAlgData {
   std::array<uint64_t, static_cast<std::size_t>(CS2 * 6)> face_masks;
   std::array<uint8_t, CS2> forward_merged;
   std::array<uint8_t, CS> right_merged;
-  std::array<int, 6> face_vertices_start_indices;
-  std::array<int, 6> face_vertex_lengths;
+  std::array<int, 6> face_vertices_start_indices{};
+  std::array<int, 6> face_vertex_lengths{};
   int max_vertices{};
 };
 

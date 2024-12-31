@@ -23,13 +23,13 @@ class ChunkMeshManager {
     void* data;
   };
   void UploadChunkMeshes(std::span<ChunkMeshUpload> uploads);
-  void Draw();
   void Update();
 
   static constexpr const uint32_t MaxQuads{1000000000};
   static constexpr const uint32_t MaxDrawCmds{256 * 256 * 10};
 
  private:
+  friend struct VoxelRenderer;
   template <typename T>
   struct WaitingResource {
     T data;
@@ -51,4 +51,5 @@ class ChunkMeshManager {
   tvk::AllocatedBuffer draw_indir_gpu_buf_{};
   std::list<WaitingResource<ChunkMeshUploadBatch>> pending_mesh_uploads_;
   GPUBufferAllocator<uint64_t> chunk_quad_buffer_;
+  tvk::AllocatedBuffer quad_index_buf_;
 };

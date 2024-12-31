@@ -72,11 +72,10 @@ glm::mat4 Camera::GetRotationMat() const {
 }
 
 glm::vec3 Camera::GetLookDirection() const {
-  glm::vec3 direction = -glm::vec3(glm::cos(pitch) * glm::sin(yaw),  // x-component
-                                   glm::sin(pitch),                  // y-component (up)
-                                   glm::cos(pitch) * glm::cos(yaw)   // z-component
+  glm::vec3 direction = glm::vec3(glm::cos(pitch) * glm::sin(yaw),  // x-component
+                                  glm::sin(pitch),                  // y-component (up)
+                                  glm::cos(pitch) * glm::cos(yaw)   // z-component
   );
-  direction.y *= -1;
   return glm::normalize(direction);
   glm::quat pitch_rot = glm::angleAxis(pitch, glm::vec3{1, 0, 0});
   glm::quat yaw_rot = glm::angleAxis(yaw, glm::vec3{0, 1, 0});

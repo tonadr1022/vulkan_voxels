@@ -44,8 +44,8 @@ void FillSphere(Grid3D<i8vec3{PCS}>& grid, PaddedChunkMask& mask) {
         int type = 0;
         if (glm::distance(glm::vec3(x, y, z), glm::vec3(0)) < r) {
           type = 1;
-          mask.Set(x + r, y + r, z + r);
         }
+        mask.Set(x + r, y + r, z + r, type);
         SetZXY<i8vec3{PCS}>(data, x + r, y + r, z + r, type);
       }
     }
@@ -66,4 +66,14 @@ void FillChunk(PaddedChunkGrid3D& grid, std::span<int> heights, int value) {
   }
 }
 
+void FillSolid(PaddedChunkGrid3D& grid, int value) {
+  // TODO: optimize, this is awful
+  for (int y = 0; y < PaddedChunkGrid3D::Dims.x; y++) {
+    for (int x = 0; x < PaddedChunkGrid3D::Dims.y; x++) {
+      for (int z = 0; z < PaddedChunkGrid3D::Dims.z; z++) {
+        grid.Set(x, y, z, value);
+      }
+    }
+  }
+}
 }  // namespace gen

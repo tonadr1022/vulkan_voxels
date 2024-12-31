@@ -10,6 +10,7 @@ namespace {
 
 inline uint64_t EncodeQuad(const uint64_t x, const uint64_t y, const uint64_t z, const uint64_t w,
                            const uint64_t h, const uint64_t type) {
+  assert(type);
   return (type << 32) | (h << 24) | (w << 18) | (z << 12) | (y << 6) | (x);
 }
 

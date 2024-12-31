@@ -45,6 +45,7 @@ void FillChunk(Grid3D<Len>& grid, std::span<int> heights, int value) {
   }
 }
 
+void FillSolid(PaddedChunkGrid3D& grid, int value);
 void FillChunk(PaddedChunkGrid3D& grid, std::span<int> heights, int value);
 
 struct FBMNoise {

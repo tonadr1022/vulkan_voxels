@@ -498,12 +498,17 @@ void Renderer::InitVulkan() {
   features.depthClamp = VK_TRUE;
   features.shaderStorageImageMultisample = VK_TRUE;
   features.sampleRateShading = VK_TRUE;
+  VkPhysicalDeviceVulkan11Features features11{};
+
+  features11.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
+  features11.shaderDrawParameters = VK_TRUE;
 
   vkb::PhysicalDeviceSelector selector{vkb_instance};
   auto phys_device_ret = selector.set_minimum_version(1, 3)
                              .set_required_features_13(features13)
                              .set_required_features(features)
                              .set_required_features_12(features12)
+                             .set_required_features_11(features11)
                              .set_surface(surface_)
                              .select();
   if (!phys_device_ret.has_value()) {
@@ -555,7 +560,7 @@ void Renderer::DrawImGui() {}
 
 void Renderer::ReloadShaders() { LoadShaders(false, true); }
 
-FrameData& Renderer::GetCurrentFrame() { return frames_[frame_num_ % 2]; }
+FrameData& Renderer::GetCurrentFrame() { return frames_[frame_num_ % FrameOverlap]; }
 
 void Renderer::EndMainCommandBufferSubmitAndPresent() {
   ZoneScoped;
@@ -655,4 +660,18 @@ void Renderer::RegisterComputePipelinesInternal(auto pipelines) {
 void Renderer::RegisterComputePipelines(
     std::initializer_list<std::pair<tvk::Pipeline*, std::string>> pipelines) {
   RegisterComputePipelinesInternal(pipelines);
+}
+
+void Renderer::SetViewportAndScissor(VkCommandBuffer cmd, VkExtent2D extent) {
+  VkViewport viewport{.x = 0,
+                      .y = 0,
+                      .width = static_cast<float>(extent.width),
+                      .height = static_cast<float>(extent.height),
+                      .minDepth = 0.f,
+                      .maxDepth = 1.f};
+
+  vkCmdSetViewport(cmd, 0, 1, &viewport);
+  VkRect2D scissor{.offset = VkOffset2D{.x = 0, .y = 0},
+                   .extent = VkExtent2D{.width = extent.width, .height = extent.height}};
+  vkCmdSetScissor(cmd, 0, 1, &scissor);
 }

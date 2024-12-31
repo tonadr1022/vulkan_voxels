@@ -8,8 +8,7 @@
 #include "StagingBufferPool.hpp"
 #include "VoxelRenderer.hpp"
 #include "application/Renderer.hpp"
-
-void ChunkMeshManager::Draw() {}
+#include "voxels/Common.hpp"
 
 void ChunkMeshManager::Cleanup() {}
 
@@ -27,6 +26,33 @@ void ChunkMeshManager::Init(VoxelRenderer* renderer) {
 
     chunk_quad_buffer_.Destroy();
   });
+  constexpr int MaxQuadsPerChunk = CS3 * 6;
+  constexpr int QuadsIndexBufSize = MaxQuadsPerChunk * sizeof(uint32_t);
+  std::vector<uint32_t> indices;
+  for (int i = 0; i < MaxQuadsPerChunk; i++) {
+    indices.push_back((i << 2) | 2u);
+    indices.push_back((i << 2) | 0u);
+    indices.push_back((i << 2) | 1u);
+    indices.push_back((i << 2) | 1u);
+    indices.push_back((i << 2) | 3u);
+    indices.push_back((i << 2) | 2u);
+  }
+
+  quad_index_buf_ = renderer_->allocator_.CreateBuffer(
+      QuadsIndexBufSize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+      VMA_MEMORY_USAGE_GPU_ONLY);
+  renderer_->main_deletion_queue_.PushFunc(
+      [this]() { renderer_->allocator_.DestroyBuffer(quad_index_buf_); });
+  tvk::AllocatedBuffer staging = renderer_->allocator_.CreateStagingBuffer(QuadsIndexBufSize);
+  memcpy(staging.data, indices.data(), QuadsIndexBufSize);
+  renderer_->ImmediateSubmit([&staging, this](VkCommandBuffer cmd) {
+    VkBufferCopy vertex_copy{};
+    vertex_copy.dstOffset = 0;
+    vertex_copy.srcOffset = 0;
+    vertex_copy.size = QuadsIndexBufSize;
+    vkCmdCopyBuffer(cmd, staging.buffer, quad_index_buf_.buffer, 1, &vertex_copy);
+  });
+  renderer_->allocator_.DestroyBuffer(staging);
 }
 
 void ChunkMeshManager::UploadChunkMeshes(std::span<ChunkMeshUpload> uploads) {
@@ -111,5 +137,12 @@ void ChunkMeshManager::Update() {
               VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
           VMA_MEMORY_USAGE_GPU_ONLY);
     }
+    renderer_->ImmediateSubmit([&](VkCommandBuffer cmd) {
+      VkBufferCopy copy{};
+      copy.dstOffset = 0;
+      copy.srcOffset = 0;
+      copy.size = copy_size;
+      vkCmdCopyBuffer(cmd, draw_indirect_staging_buf_.buffer, draw_indir_gpu_buf_.buffer, 1, &copy);
+    });
   }
 }

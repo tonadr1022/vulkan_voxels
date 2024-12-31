@@ -56,7 +56,8 @@ struct Renderer {
     VkSampler depth_sampler;
   } default_data_;
 
-  FrameData frames_[2];
+  static constexpr int FrameOverlap = 2;
+  FrameData frames_[FrameOverlap];
   uint64_t frame_num_{0};
   VkInstance instance_;
   VkDebugUtilsMessengerEXT debug_messenger_;
@@ -100,6 +101,7 @@ struct Renderer {
 
   tvk::FencePool fence_pool_;
 
+  void SetViewportAndScissor(VkCommandBuffer cmd, VkExtent2D extent);
   AsyncTransfer TransferSubmitAsync(std::function<void(VkCommandBuffer cmd)>&& function);
   void ReturnFence(VkFence fence);
   void ImmediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function);

@@ -247,32 +247,49 @@ int main() {
   mesh_alg_pool.Init(MaxMeshTasks);
   mesh_data_pool.Init(MaxMeshTasks);
 
-  int seed = 1;
   window.Init("Voxel Renderer", 1700, 900);
   renderer.Init(&window);
   Timer timer;
   PaddedChunkGrid3D grid;
   // gen::FillSphere(grid.grid, grid.mask);
 
-  gen::FBMNoise fbm_noise(seed);
+  // int seed = 1;
+  // ChunkPaddedHeightMapGrid heights;
+  // ChunkPaddedHeightMapFloats height_map_floats;
+  // gen::FBMNoise fbm_noise(seed);
+  // fbm_noise.FillNoise<i8vec3{PCS}>(height_map_floats, {});
+  // gen::NoiseToHeights(height_map_floats, heights, {0, 32});
 
-  ChunkPaddedHeightMapGrid heights;
-  ChunkPaddedHeightMapFloats height_map_floats;
-  fbm_noise.FillNoise<i8vec3{PCS}>(height_map_floats, {});
-  gen::NoiseToHeights(height_map_floats, heights, {0, 32});
-
-  gen::FillChunk(grid, heights, 1);
+  // gen::FillChunk(grid, heights, 1);
+  gen::FillSolid(grid, 1);
   MeshData* data = mesh_data_pool.Alloc();
   auto alg_data_alloc = mesh_alg_pool.Alloc();
 
   MeshAlgData* alg_data = mesh_alg_pool.Get(alg_data_alloc);
   data->mask = &grid.mask;
 
+  assert(grid.ValidateBitmask());
   GenerateMesh(grid.grid.grid, *alg_data, *data);
+  ivec3 chunk_pos = {0, 0, 0};
+  std::vector<ChunkMeshManager::ChunkMeshUpload> uploads;
+  if (data->vertex_cnt) {
+    for (int i = 0; i < 6; i++) {
+      if (alg_data->face_vertex_lengths[i]) {
+        uint32_t base_instance =
+            (i << 24) | (chunk_pos.z << 16) | (chunk_pos.y << 16) | (chunk_pos.x);
+        ChunkMeshManager::ChunkMeshUpload u;
+        u.count = alg_data->face_vertex_lengths[i];
+        fmt::println("base_instance {}, count {}", base_instance, u.count);
+        u.first_instance = base_instance;
+        u.data = &data->vertices[alg_data->face_vertices_start_indices[i]];
+        uploads.emplace_back(u);
+      }
+    }
+    ChunkMeshManager::Get().UploadChunkMeshes(uploads);
+  }
 
   mesh_data_pool.Free(data);
   mesh_alg_pool.Free(alg_data_alloc);
-  // gen::FillSphere();
 
   // mesh
 
@@ -312,17 +329,17 @@ int main() {
     scene_data.cam_pos = main_cam.position;
     scene_data.time = time;
     renderer.Draw(&scene_data, draw_imgui);
-    static int i = 0;
-    if (i++ < 10) {
-      std::vector<ChunkMeshManager::ChunkMeshUpload> uploads;
-      int cnt = 100;
-      uploads.reserve(cnt);
-      for (int j = 0; j < cnt; j++) {
-        uploads.emplace_back(data->vertex_cnt, 0, data->vertices.data());
-      }
-      ChunkMeshManager::Get().UploadChunkMeshes(uploads);
-      stats.frame_time = dt;
-    }
+    // static int i = 0;
+    // if (i++ < 10) {
+    //   std::vector<ChunkMeshManager::ChunkMeshUpload> uploads;
+    //   int cnt = 100;
+    //   uploads.reserve(cnt);
+    //   for (int j = 0; j < cnt; j++) {
+    //     uploads.emplace_back(data->vertex_cnt, 0, data->vertices.data());
+    //   }
+    //   ChunkMeshManager::Get().UploadChunkMeshes(uploads);
+    //   stats.frame_time = dt;
+    // }
   }
   renderer.Cleanup();
 }

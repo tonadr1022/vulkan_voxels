@@ -19,6 +19,15 @@ struct VSettings {
   AABB aabb;
 };
 
+struct SceneDataUBO {
+  mat4 view;
+  mat4 proj;
+  mat4 viewproj;
+  mat4 world_center_view;
+  mat4 world_center_viewproj;
+  ivec3 view_pos_int;
+};
+
 struct VoxelRenderer : public Renderer {
   VoxelRenderer();
   void Init(Window* window) override;
@@ -30,6 +39,15 @@ struct VoxelRenderer : public Renderer {
   void DrawImGui() override;
 
  private:
+  struct ExtendedFrameData {
+    tvk::AllocatedBuffer scene_data_ubo_buffer;
+  };
+  ExtendedFrameData extented_frame_data_[FrameOverlap];
+  ExtendedFrameData& GetExtendedFrameData() {
+    return extented_frame_data_[frame_num_ % FrameOverlap];
+  }
+  void UpdateSceneDataUBO();
+  void DrawChunks(VkDescriptorSet scene_data_set, VkCommandBuffer cmd);
   friend class ChunkMeshManager;
   void DrawChunks(VkCommandBuffer cmd, tvk::AllocatedImage& img);
   void DrawRayMarchCompute(VkCommandBuffer cmd, tvk::AllocatedImage& img);

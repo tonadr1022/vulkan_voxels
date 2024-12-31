@@ -12,8 +12,6 @@
 #include "Resource.hpp"
 #include "StagingBufferPool.hpp"
 #include "Types.hpp"
-#include "glm/ext/matrix_clip_space.hpp"
-#include "glm/ext/matrix_transform.hpp"
 #include "imgui.h"
 #include "tvk/Barrier.hpp"
 #include "tvk/Error.hpp"
@@ -56,42 +54,12 @@ void VoxelRenderer::Draw(bool draw_imgui) {
   PipelineBarrier(cmd, 0,
                   ImageBarrierUpdate(draw_image_.image, draw_img_state, next_draw_img_state));
 
-  SceneDataUBO scene_data_ubo_cpu;
-  scene_data_ubo_cpu.view_pos_int = glm::floor(scene_data_->cam_pos);
-  vec3 intra_voxel_pos = scene_data_->cam_pos - glm::floor(scene_data_->cam_pos);
-  float aspect = static_cast<float>(draw_dims_.x) / static_cast<float>(draw_dims_.y);
-  if (draw_dims_.x == 0 && draw_dims_.y == 0) {
-    aspect = 1.f;
-  }
-
-  float near = 0.1f;
-  float far = 1000.f;
-  std::swap(near, far);
-  glm::mat4 proj = glm::perspective(70.f, aspect, near, far);
-  proj[1][1] *= -1;
-  scene_data_ubo_cpu.proj = proj;
-  scene_data_ubo_cpu.world_center_view =
-      glm::lookAt(intra_voxel_pos, intra_voxel_pos + scene_data_->cam_dir, vec3(0, 1, 0));
-  scene_data_ubo_cpu.world_center_viewproj = proj * scene_data_ubo_cpu.world_center_view;
-
-  auto* scene_uniform_data =
-      static_cast<SceneDataUBO*>(GetExtendedFrameData().scene_data_ubo_buffer.data);
-  *scene_uniform_data = scene_data_ubo_cpu;
-  tvk::DescriptorBuilder b;
-  auto scene_ubo_info = GetExtendedFrameData().scene_data_ubo_buffer.GetInfo();
-  VkDescriptorSet scene_set =
-      b.Begin(VK_SHADER_STAGE_VERTEX_BIT)
-          .WriteBuffer(0, &scene_ubo_info, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER)
-          .Build(device_, set_cache_, GetCurrentFrame().frame_descriptors);
-
   draw_dims_ = {draw_image_.extent.width, draw_image_.extent.height};
   // DrawRayMarchCompute(cmd, draw_image_);
   VkClearValue clear{.color = VkClearColorValue{{0.0, 0.0, 1.0, 1.0}}};
   auto color_attachment = tvk::init::AttachmentInfo(draw_image_.view, &clear);
   auto render_info = tvk::init::RenderingInfo(draw_image_.Extent2D(), &color_attachment);
   vkCmdBeginRendering(cmd, &render_info);
-  SetViewportAndScissor(cmd, {draw_dims_.x, draw_dims_.y});
-  DrawChunks(scene_set, cmd);
   vkCmdEndRendering(cmd);
 
   next_draw_img_state = {VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
@@ -142,23 +110,22 @@ void VoxelRenderer::Draw(bool draw_imgui) {
 }
 
 void VoxelRenderer::InitPipelines() {
-  // TODO: make this more streamlined
   chunk_mesh_pipeline_.create_fn = [this](std::span<tvk::Shader> shaders,
                                           tvk::PipelineAndLayout& p) {
     tvk::GraphicsPipelineBuilder p_builder;
+    VkVertexInputAttributeDescription vertex_attributes[] = {
+        tvk::init::VertexInputAttributeDescription(0, 0, VK_FORMAT_R64_UINT, 0)};
+    VkVertexInputBindingDescription bindings[] = {
+        tvk::init::VertexInputBindingDescription(0, sizeof(uint64_t), VK_VERTEX_INPUT_RATE_VERTEX)};
+    auto info = tvk::init::PipelineVertexInputStateCreateInfo(bindings, vertex_attributes);
 
     p_builder.SetColorAttachmentFormat(draw_image_.format);
     p_builder.SetDepthFormat(depth_image_.format);
-    p_builder.EnableDepthTest(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
     p_builder.DefaultGraphicsPipeline();
     p_builder.pipeline_layout = p.layout;
     p_builder.SetShaders(shaders);
-    p.pipeline = p_builder.BuildPipeline(device_);
+    p_builder.SetVertexInput(info);
   };
-
-  chunk_mesh_pipeline_.shaders = {tvk::Shader{"voxels/chunk.vert"},
-                                  tvk::Shader{"voxels/chunk.frag"}};
-  pipelines_.push_back(&chunk_mesh_pipeline_);
   RegisterComputePipelines({{&raymarch_pipeline_, "voxels/raymarch_voxel.comp"}});
 }
 
@@ -209,35 +176,7 @@ void VoxelRenderer::Init(Window* window) {
     ChunkMeshManager::Get().Cleanup();
     fence_pool_.Cleanup();
     staging_buffer_pool_.Cleanup();
-    for (auto& frame : extented_frame_data_) {
-      allocator_.DestroyBuffer(frame.scene_data_ubo_buffer);
-    }
   });
-  for (auto& frame : extented_frame_data_) {
-    frame.scene_data_ubo_buffer =
-        allocator_.CreateBuffer(sizeof(SceneDataUBO), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                                VMA_MEMORY_USAGE_CPU_TO_GPU, VMA_ALLOCATION_CREATE_MAPPED_BIT);
-  }
 }
 
 VoxelRenderer::VoxelRenderer() : staging_buffer_pool_(allocator_) {}
-void VoxelRenderer::DrawChunks(VkDescriptorSet scene_data_set, VkCommandBuffer cmd) {
-  chunk_mesh_pipeline_.BindGraphics(cmd);
-  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                          chunk_mesh_pipeline_.pipeline->layout, 0, 1, &scene_data_set, 0, nullptr);
-
-  auto info = ChunkMeshManager::Get().chunk_quad_buffer_.device_buffer.GetInfo();
-  DescriptorBuilder b;
-  VkDescriptorSet quad_set = b.Begin(VK_SHADER_STAGE_VERTEX_BIT)
-                                 .WriteBuffer(0, &info, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
-                                 .Build(device_, set_cache_, GetCurrentFrame().frame_descriptors);
-  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                          chunk_mesh_pipeline_.pipeline->layout, 1, 1, &quad_set, 0, nullptr);
-  vkCmdBindIndexBuffer(cmd, ChunkMeshManager::Get().quad_index_buf_.buffer, 0,
-                       VK_INDEX_TYPE_UINT32);
-  auto& buf = ChunkMeshManager::Get().draw_indir_gpu_buf_;
-  vkCmdDrawIndexedIndirect(cmd, buf.buffer, 0, buf.size / sizeof(VkDrawIndexedIndirectCommand),
-                           sizeof(VkDrawIndexedIndirectCommand));
-}
-
-void VoxelRenderer::UpdateSceneDataUBO() {}
