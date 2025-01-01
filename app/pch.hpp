@@ -10,6 +10,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "EAssert.hpp"
+
 #if defined _WIN32 || defined __CYGWIN__
 #define PATH_SEP "\\"
 #else

@@ -71,7 +71,7 @@ void FillChunk(PaddedChunkGrid3D& grid, std::span<int> heights, Func&& func) {
     for (int x = 0; x < PaddedChunkGrid3D::Dims.y; x++) {
       for (int z = 0; z < PaddedChunkGrid3D::Dims.z; z++) {
         int fill = 0;
-        if (y < heights[(PaddedChunkGrid3D::Dims.x * z) + x]) {
+        if (y < heights[(PaddedChunkGrid3D::Dims.x * x) + z]) {
           fill = func(x, y, z);
         }
         grid.Set(x, y, z, fill);

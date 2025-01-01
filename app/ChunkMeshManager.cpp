@@ -103,7 +103,7 @@ void ChunkMeshManager::Update() {
   for (auto it = pending_mesh_uploads_.begin(); it != pending_mesh_uploads_.end();) {
     auto& upload = *it;
     auto status = vkGetFenceStatus(renderer_->device_, upload.transfer.fence);
-    assert(status != VK_ERROR_DEVICE_LOST);
+    EASSERT(status != VK_ERROR_DEVICE_LOST);
     if (status == VK_ERROR_DEVICE_LOST) {
       fmt::println("failed!");
       exit(1);
@@ -124,7 +124,7 @@ void ChunkMeshManager::Update() {
       renderer_->fence_pool_.AddFreeFence(upload.transfer.fence);
       it = pending_mesh_uploads_.erase(it);
     } else {
-      fmt::println("waiting on fence");
+      // fmt::println("waiting on fence");
       it++;
     }
   }

@@ -8,6 +8,7 @@ Util.cpp
 ChunkMeshManager.cpp
 VoxelRenderer.cpp
 StagingBufferPool.cpp
+EAssert.cpp
 
 voxels/Terrain.cpp
 voxels/Mesher.cpp

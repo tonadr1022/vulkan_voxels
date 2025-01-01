@@ -5,6 +5,7 @@
 #include "MemUsage.hpp"
 #include "Pool.hpp"
 #include "SDL3/SDL_events.h"
+#include "SDL3/SDL_keycode.h"
 #include "Stats.hpp"
 #include "Util.hpp"
 #include "VoxelRenderer.hpp"
@@ -39,8 +40,10 @@ vec3 sun_color{1, 1, 1};
 vec3 sun_dir{0, -2, -1};
 vec3 ambient_color{0.1, 0.1, 0.1};
 
-AutoCVarFloat move_speed("camera.speed", "movement speed", 200.f, CVarFlags::EditFloatDrag);
+AutoCVarFloat move_speed("camera.speed", "movement speed", 400.f, CVarFlags::EditFloatDrag);
 
+float move_speed_vel{};
+float move_speed_change_accel{0.2};
 void UpdateCamera(double dt) {
   vec3 move{0};
   if (Input::IsKeyDown(SDLK_W) || Input::IsKeyDown(SDLK_I)) {
@@ -61,6 +64,14 @@ void UpdateCamera(double dt) {
   if (Input::IsKeyDown(SDLK_H) || Input::IsKeyDown(SDLK_F)) {
     move.y--;
   }
+  if (Input::IsKeyDown(SDLK_EQUALS)) {
+    move_speed_vel += move_speed_change_accel;
+  } else if (Input::IsKeyDown(SDLK_MINUS)) {
+    move_speed_vel -= move_speed_change_accel;
+  } else {
+    move_speed_vel = 0;
+  }
+  move_speed.Set(move_speed.Get() + move_speed_vel);
   auto dir = (main_cam.front * move.x) + (main_cam.right * move.z) + move.y * vec3(0, 1, 0);
   main_cam.position += dir * move_speed.GetFloat() * static_cast<float>(dt);
 }

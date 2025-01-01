@@ -22,9 +22,15 @@ using ChunkPaddedHeightMapFloats = HeightMapFloats<i8vec3{PCS}>;
 using ChunkPaddedHeightMapGrid = HeightMapGrid<i8vec3{PCS}>;
 
 using OpaqueMask = std::array<uint64_t, PCS2>;
+
+template <i8vec3 Len>
+constexpr uint32_t XZY(int x, int y, int z) {
+  return x + (z * Len.x) + (y * Len.x * Len.z);
+}
+
 template <i8vec3 Len>
 constexpr uint32_t ZXY(int x, int y, int z) {
-  return z + (x * Len.x) + (y * Len.x * Len.z);
+  return z + (x * Len.z) + (y * Len.x * Len.z);
 }
 
 template <int Len>
@@ -32,7 +38,14 @@ constexpr uint32_t XYZ(int x, int y, int z) {
   return x + (y * Len) + (z * Len * Len);
 }
 
-// Chunk volume size
+template <i8vec3 Len>
+inline void SetXZY(Grid3Du8<Len>& grid, int x, int y, int z, uint8_t value) {
+  grid[XZY<Len>(x, y, z)] = value;
+}
+template <i8vec3 Len>
+inline uint8_t GetXZY(const Grid3Du8<Len>& grid, int x, int y, int z) {
+  return grid[XZY<Len>(x, y, z)];
+}
 template <i8vec3 Len>
 inline void SetZXY(Grid3Du8<Len>& grid, int x, int y, int z, uint8_t value) {
   grid[ZXY<Len>(x, y, z)] = value;
