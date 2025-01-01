@@ -102,6 +102,7 @@ void VoxelWorld::Update() {
             uint32_t base_instance =
                 (i << 24) | (chunk_pos.z << 16) | (chunk_pos.y << 16) | (chunk_pos.x);
             ChunkMeshUpload u;
+            u.pos = chunk_pos;
             u.count = alg_data.face_vertex_lengths[i];
             u.first_instance = base_instance;
             u.data = &mesh_task.data->vertices[alg_data.face_vertices_start_indices[i]];

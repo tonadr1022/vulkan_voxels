@@ -18,7 +18,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(
   if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
     fmt::println("Debug Callback err: {}", pCallbackData->pMessage);
     // #ifndef NDEBUG
-    exit(1);
+    // exit(1);
     // #endif
   }
   return VK_FALSE;

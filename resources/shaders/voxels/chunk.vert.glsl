@@ -12,9 +12,18 @@ layout(set = 1, binding = 0) readonly buffer ssbo1 {
     QuadData data[];
 } quads;
 
+struct UniformData {
+    ivec4 pos;
+};
+
+layout(set = 1, binding = 1) readonly buffer ssbo2 {
+    UniformData uniforms[];
+};
+
 layout(location = 0) out vec3 out_pos;
 layout(location = 1) out vec3 out_normal;
 layout(location = 2) out uint out_material;
+// layout(location = 3) out vec3 out_bary_coords;
 
 const vec3 normal_lookup[6] = vec3[6](
         vec3(0.0, 1.0, 0.0),
@@ -27,14 +36,15 @@ const vec3 normal_lookup[6] = vec3[6](
 
 const int flip_lookup[6] = int[6](1, -1, -1, 1, -1, 1);
 
+// const vec3 bary_coord_lookup[3] = vec3[3](vec3(1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 0.0, 1.0));
+
 vec4 GetVertexPos() {
-    // unpack chunk offset and face
-    // gl_BaseInstance is unused, so use it for chunk position
-    ivec3 chunk_offset_pos = ivec3(gl_BaseInstance & 255u, (gl_BaseInstance >> 8) & 255u, (gl_BaseInstance >> 16) & 255u) * 62;
-    // chunk_offset_pos = ivec3(0, -60, 0);
-    uint face = gl_BaseInstance >> 24;
+    UniformData u = uniforms[gl_BaseInstance];
+    ivec3 chunk_offset_pos = u.pos.xyz * 62;
+    uint face = u.pos.w;
     // get index within the quad
     int vertex_id = int(gl_VertexIndex & 3u);
+    // out_bary_coords = bary_coord_lookup[vertex_id];
     // get quad idx
     uint quad_idx = gl_VertexIndex >> 2u;
 
@@ -53,8 +63,8 @@ vec4 GetVertexPos() {
     int w_mod = vertex_id >> 1, h_mod = vertex_id & 1;
 
     // offset the vertex in correct direction length
-    i_vertex_pos[w_dir] += (w * w_mod * flip_lookup[face]);
-    i_vertex_pos[h_dir] += (h * h_mod);
+    i_vertex_pos[w_dir] += (w * w_mod * flip_lookup[face]) * 2;
+    i_vertex_pos[h_dir] += (h * h_mod) * 2;
 
     out_pos = i_vertex_pos;
     out_material = (data2 & 255u);

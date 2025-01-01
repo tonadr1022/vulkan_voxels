@@ -12,6 +12,13 @@
 struct StagingBufferPool;
 struct VoxelRenderer;
 
+struct ChunkUniformData {
+  ivec4 pos;
+};
+struct DIIC {
+  VkDrawIndexedIndirectCommand cmd;
+  ivec4 pos;
+};
 class ChunkMeshManager {
  public:
   static ChunkMeshManager& Get();
@@ -34,6 +41,7 @@ class ChunkMeshManager {
     std::unique_ptr<tvk::AllocatedBuffer> staging_buf;
   };
   struct ChunkMeshUploadInternal {
+    ivec4 pos;
     uint32_t first_instance;
     uint32_t base_vertex;
     uint32_t vertex_count;
@@ -43,11 +51,16 @@ class ChunkMeshManager {
     std::vector<ChunkMeshUploadInternal> uploads;
   };
   VoxelRenderer* renderer_{};
-  std::vector<VkDrawIndexedIndirectCommand> draw_indir_cmds_;
+  std::vector<DIIC> draw_indir_cmds_;
+  std::vector<ChunkUniformData> chunk_uniforms_;
+  tvk::AllocatedBuffer chunk_uniform_staging_buf_;
+  tvk::AllocatedBuffer chunk_uniform_gpu_buf_;
+
   tvk::AllocatedBuffer draw_indirect_staging_buf_;
   tvk::AllocatedBuffer draw_indir_gpu_buf_{};
   std::list<WaitingResource<ChunkMeshUploadBatch>> pending_mesh_uploads_;
   GPUBufferAllocator<uint64_t> chunk_quad_buffer_;
   tvk::AllocatedBuffer quad_index_buf_;
   void MakeDrawIndirectGPUBuf(size_t size);
+  void MakeChunkUniformGPUBuf(size_t size);
 };

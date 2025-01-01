@@ -279,17 +279,20 @@ void VoxelRenderer::DrawChunks(VkDescriptorSet scene_data_set, VkCommandBuffer c
                           chunk_mesh_pipeline_.pipeline->layout, 0, 1, &scene_data_set, 0, nullptr);
 
   auto info = ChunkMeshManager::Get().chunk_quad_buffer_.device_buffer.GetInfo();
+  auto uniform_buf_info = ChunkMeshManager::Get().chunk_uniform_gpu_buf_.GetInfo();
   DescriptorBuilder b;
-  VkDescriptorSet quad_set = b.Begin(VK_SHADER_STAGE_VERTEX_BIT)
-                                 .WriteBuffer(0, &info, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
-                                 .Build(device_, set_cache_, GetCurrentFrame().frame_descriptors);
+  VkDescriptorSet quad_set =
+      b.Begin(VK_SHADER_STAGE_VERTEX_BIT)
+          .WriteBuffer(0, &info, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+          .WriteBuffer(1, &uniform_buf_info, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+          .Build(device_, set_cache_, GetCurrentFrame().frame_descriptors);
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                           chunk_mesh_pipeline_.pipeline->layout, 1, 1, &quad_set, 0, nullptr);
   vkCmdBindIndexBuffer(cmd, ChunkMeshManager::Get().quad_index_buf_.buffer, 0,
                        VK_INDEX_TYPE_UINT32);
   // TODO: don't rely on that size
   vkCmdDrawIndexedIndirect(cmd, buf.buffer, 0, ChunkMeshManager::Get().draw_indir_cmds_.size(),
-                           sizeof(VkDrawIndexedIndirectCommand));
+                           sizeof(DIIC));
 }
 
 void VoxelRenderer::UpdateSceneDataUBO() {}
