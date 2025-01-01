@@ -11,6 +11,7 @@
 #include "imgui.h"
 #include "voxels/Common.hpp"
 
+#define SINGLE_TRIANGLE_QUADS
 void ChunkMeshManager::Cleanup() {}
 
 void ChunkMeshManager::Init(VoxelRenderer* renderer) {
@@ -35,16 +36,22 @@ void ChunkMeshManager::Init(VoxelRenderer* renderer) {
 
     chunk_quad_buffer_.Destroy();
   });
+#ifdef SINGLE_TRIANGLE_QUADS
+  constexpr int MaxQuadsPerChunk = CS3 * 3;
+#else
   constexpr int MaxQuadsPerChunk = CS3 * 6;
+#endif
   constexpr int QuadsIndexBufSize = MaxQuadsPerChunk * sizeof(uint32_t);
   std::vector<uint32_t> indices;
   for (int i = 0; i < MaxQuadsPerChunk; i++) {
     indices.push_back((i << 2) | 2u);
     indices.push_back((i << 2) | 0u);
     indices.push_back((i << 2) | 1u);
+#ifndef SINGLE_TRIANGLE_QUADS
     indices.push_back((i << 2) | 1u);
     indices.push_back((i << 2) | 3u);
     indices.push_back((i << 2) | 2u);
+#endif
   }
 
   quad_index_buf_ = renderer_->allocator_.CreateBuffer(
@@ -121,7 +128,11 @@ void ChunkMeshManager::Update() {
       // mesh upload finished, add the draw command
       for (auto& b : upload.data.uploads) {
         DIIC cmd;
+#ifdef SINGLE_TRIANGLE_QUADS
+        cmd.cmd.indexCount = b.vertex_count * 3;
+#else
         cmd.cmd.indexCount = b.vertex_count * 6;
+#endif
         cmd.cmd.instanceCount = 1;
         cmd.cmd.firstIndex = 0;
         cmd.cmd.firstInstance = b.first_instance;

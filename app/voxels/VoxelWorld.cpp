@@ -28,7 +28,7 @@ void VoxelWorld::Init() {
 void VoxelWorld::GenerateWorld() {
   ZoneScoped;
   ivec3 iter{0};
-  int radius = 40;
+  int radius = 70;
   for (iter.x = 0; iter.x <= radius; iter.x++) {
     for (iter.z = 0; iter.z <= radius; iter.z++) {
       to_gen_terrain_tasks_.emplace_back(iter);

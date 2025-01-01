@@ -3,6 +3,8 @@
 #extension GL_GOOGLE_include_directive : require
 #include "../scene_data.h.glsl"
 
+#define SINGLE_TRIANGLE_QUADS
+
 struct QuadData {
     uint data1;
     uint data2;
@@ -23,7 +25,11 @@ layout(set = 1, binding = 1) readonly buffer ssbo2 {
 layout(location = 0) out vec3 out_pos;
 layout(location = 1) out vec3 out_normal;
 layout(location = 2) out uint out_material;
-// layout(location = 3) out vec3 out_bary_coords;
+
+#ifdef SINGLE_TRIANGLE_QUADS
+layout(location = 3) out vec2 out_uv;
+const vec2 uv_lookup[3] = vec2[3](vec2(0.0, 0.0), vec2(2.0, 0.0), vec2(0.0, 2.0));
+#endif
 
 const vec3 normal_lookup[6] = vec3[6](
         vec3(0.0, 1.0, 0.0),
@@ -36,15 +42,12 @@ const vec3 normal_lookup[6] = vec3[6](
 
 const int flip_lookup[6] = int[6](1, -1, -1, 1, -1, 1);
 
-// const vec3 bary_coord_lookup[3] = vec3[3](vec3(1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 0.0, 1.0));
-
 vec4 GetVertexPos() {
     UniformData u = uniforms[gl_BaseInstance];
     ivec3 chunk_offset_pos = u.pos.xyz * 62;
     uint face = u.pos.w;
     // get index within the quad
     int vertex_id = int(gl_VertexIndex & 3u);
-    // out_bary_coords = bary_coord_lookup[vertex_id];
     // get quad idx
     uint quad_idx = gl_VertexIndex >> 2u;
 
@@ -63,8 +66,14 @@ vec4 GetVertexPos() {
     int w_mod = vertex_id >> 1, h_mod = vertex_id & 1;
 
     // offset the vertex in correct direction length
+    #ifdef SINGLE_TRIANGLE_QUADS
+    out_uv = uv_lookup[vertex_id];
     i_vertex_pos[w_dir] += (w * w_mod * flip_lookup[face]) * 2;
     i_vertex_pos[h_dir] += (h * h_mod) * 2;
+    #else
+    i_vertex_pos[w_dir] += (w * w_mod * flip_lookup[face]);
+    i_vertex_pos[h_dir] += (h * h_mod);
+    #endif
 
     out_pos = i_vertex_pos;
     out_material = (data2 & 255u);
