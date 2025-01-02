@@ -67,6 +67,32 @@ void VoxelRenderer::Draw(bool draw_imgui) {
   VK_CHECK(vkResetFences(device_, 1, &GetCurrentFrame().render_fence));
   VK_CHECK(vkResetCommandBuffer(GetCurrentFrame().main_command_buffer, 0));
 
+  scene_data_ubo_cpu.sun_color = vec4(scene_data_->sun_color, 0.0);
+  scene_data_ubo_cpu.sun_dir = vec4(glm::normalize(scene_data_->sun_dir), 0.0);
+  scene_data_ubo_cpu.view_pos_int = ivec4(glm::floor(scene_data_->cam_pos), 0.0);
+  scene_data_ubo_cpu.cam_dir = vec4(scene_data_->cam_dir, 0.0);
+  scene_data_ubo_cpu.ambient_color = vec4(scene_data_->ambient_color, 0.0);
+  vec3 intra_voxel_pos = scene_data_->cam_pos - glm::floor(scene_data_->cam_pos);
+  float aspect = static_cast<float>(draw_dims_.x) / static_cast<float>(draw_dims_.y);
+  if (draw_dims_.x == 0 && draw_dims_.y == 0) {
+    aspect = 1.f;
+  }
+
+  float near = 0.1f;
+  float far = z_far.Get();
+  if (reverse_z.Get()) {
+    std::swap(near, far);
+  }
+  glm::mat4 proj = glm::perspective(70.f, aspect, near, far);
+  proj[1][1] *= -1;
+  scene_data_ubo_cpu.proj = proj;
+  scene_data_ubo_cpu.world_center_view =
+      glm::lookAt(intra_voxel_pos, intra_voxel_pos + scene_data_->cam_dir, vec3(0, 1, 0));
+  scene_data_ubo_cpu.world_center_viewproj = proj * scene_data_ubo_cpu.world_center_view;
+
+  auto* scene_uniform_data =
+      static_cast<SceneDataUBO*>(GetExtendedFrameData().scene_data_ubo_buffer.data);
+  *scene_uniform_data = scene_data_ubo_cpu;
   ImagePipelineState init_img_state{VK_IMAGE_LAYOUT_UNDEFINED, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
                                     0};
   tvk::ImageAndState draw_img_state(
@@ -107,34 +133,7 @@ void VoxelRenderer::Draw(bool draw_imgui) {
   tvk::ImageAndState* img_barriers[] = {&draw_img_state, &depth_img_state};
   PipelineBarrier(cmd, 0, img_barriers);
 
-  SceneDataUBO scene_data_ubo_cpu;
-  scene_data_ubo_cpu.sun_color = vec4(scene_data_->sun_color, 0.0);
-  scene_data_ubo_cpu.sun_dir = vec4(glm::normalize(scene_data_->sun_dir), 0.0);
-  scene_data_ubo_cpu.view_pos_int = ivec4(glm::floor(scene_data_->cam_pos), 0.0);
-  scene_data_ubo_cpu.cam_dir = vec4(scene_data_->cam_dir, 0.0);
-  scene_data_ubo_cpu.ambient_color = vec4(scene_data_->ambient_color, 0.0);
-  vec3 intra_voxel_pos = scene_data_->cam_pos - glm::floor(scene_data_->cam_pos);
-  float aspect = static_cast<float>(draw_dims_.x) / static_cast<float>(draw_dims_.y);
-  if (draw_dims_.x == 0 && draw_dims_.y == 0) {
-    aspect = 1.f;
-  }
-
-  float near = 0.1f;
-  float far = z_far.Get();
-  if (reverse_z.Get()) {
-    std::swap(near, far);
-  }
-  glm::mat4 proj = glm::perspective(70.f, aspect, near, far);
-  proj[1][1] *= -1;
-  scene_data_ubo_cpu.proj = proj;
-  scene_data_ubo_cpu.world_center_view =
-      glm::lookAt(intra_voxel_pos, intra_voxel_pos + scene_data_->cam_dir, vec3(0, 1, 0));
-  scene_data_ubo_cpu.world_center_viewproj = proj * scene_data_ubo_cpu.world_center_view;
-
-  auto* scene_uniform_data =
-      static_cast<SceneDataUBO*>(GetExtendedFrameData().scene_data_ubo_buffer.data);
-  *scene_uniform_data = scene_data_ubo_cpu;
-  tvk::DescriptorBuilder b;
+  static DescriptorBuilder b;
   auto scene_ubo_info = GetExtendedFrameData().scene_data_ubo_buffer.GetInfo();
   VkDescriptorSet scene_set =
       b.Begin(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
@@ -222,7 +221,6 @@ void VoxelRenderer::InitPipelines() {
     p_builder.pipeline_layout = p.layout;
     p_builder.SetShaders(shaders);
     p_builder.SetCullMode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-    // p_builder.SetCullMode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
     p.pipeline = p_builder.BuildPipeline(device_);
   };
 
@@ -251,7 +249,7 @@ void VoxelRenderer::DrawRayMarchCompute(VkCommandBuffer cmd, tvk::AllocatedImage
   pc.time = scene_data_->time;
   pc.cam_dir = scene_data_->cam_dir;
   pc.cam_pos = scene_data_->cam_pos;
-  DescriptorBuilder b;
+  static DescriptorBuilder b;
   VkDescriptorSet set = b.Begin(VK_SHADER_STAGE_COMPUTE_BIT)
                             .WriteGeneralStorageImage(0, img)
                             .Build(device_, set_cache_, GetCurrentFrame().frame_descriptors);
@@ -308,7 +306,7 @@ void VoxelRenderer::DrawChunks(VkDescriptorSet scene_data_set, VkCommandBuffer c
 
   auto info = ChunkMeshManager::Get().chunk_quad_buffer_.quad_gpu_buf.GetInfo();
   auto uniform_buf_info = mgr.chunk_uniform_gpu_buf_.GetInfo();
-  DescriptorBuilder b;
+  static DescriptorBuilder b;
   VkDescriptorSet quad_set =
       b.Begin(VK_SHADER_STAGE_VERTEX_BIT)
           .WriteBuffer(0, &info, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
@@ -385,7 +383,20 @@ void VoxelRenderer::PrepareAndCullChunks(VkCommandBuffer cmd) {
   };
   PipelineBarrier(cmd, 0, buffer_barriers, {});
 
-  DescriptorBuilder b;
+  struct PC {
+    mat4 cam_view;
+    vec4 cam_dir;
+    vec4 cam_pos;
+    uint cull_cam;
+  };
+  static AutoCVarInt cull_cam("chunks.cull_cam", "Cull entire chunk faces based on camera view", 1,
+                              CVarFlags::EditCheckbox);
+  PC pc{scene_data_ubo_cpu.world_center_view, vec4(scene_data_->cam_dir, 1.0),
+        vec4(scene_data_->cam_pos, 1.0), static_cast<bool>(cull_cam.Get())};
+  vkCmdPushConstants(cmd, chunk_cull_pipeline_.pipeline->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                     sizeof(PC), &pc);
+
+  static DescriptorBuilder b;
   VkDescriptorSet s = b.Begin(VK_SHADER_STAGE_COMPUTE_BIT)
                           .WriteBuffer(0, &draw_info_info, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
                           .WriteBuffer(1, &draw_cmds_info, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)

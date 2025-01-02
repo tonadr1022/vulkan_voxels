@@ -28,7 +28,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE engine FastNoise tracy concurrentq
 
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-        target_compile_options(${PROJECT_NAME} PUBLIC -Wall -Wextra -Werror -Wno-deprecated-declarations -Wno-unused-function -Wnan-infinity-disabled)
+        target_compile_options(${PROJECT_NAME} PUBLIC -Wall -Wextra -Werror)
     elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
         target_compile_options(${PROJECT_NAME} PUBLIC /W4 /WX)
     endif()

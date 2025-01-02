@@ -5,14 +5,15 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(BUILD_SHARED_LIBS ON)
 
 
-# TODO: only during debug include Tracy
-add_compile_definitions(TRACY_ENABLE)
-option(TRACY_ENABLE "" ON)
 add_library(tracy STATIC tracy/public/TracyClient.cpp)
+option(TRACY_ENABLE "" OFF)
+if(TRACY_ENABLE)
+    target_compile_definitions(tracy PUBLIC TRACY_ENABLE TRACY_ONLY_LOCALHOST)
+else()
+    target_compile_definitions(tracy PUBLIC TRACY_ONLY_LOCALHOST)
+endif()
 target_include_directories(tracy PUBLIC tracy/public)
-target_compile_definitions(tracy PUBLIC TRACY_ENABLE TRACY_ONLY_LOCALHOST)
-# if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
-# endif()
+
 get_target_property(tracy_include_dirs tracy INTERFACE_INCLUDE_DIRECTORIES)
 set_target_properties(tracy PROPERTIES INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${tracy_include_dirs}")
 

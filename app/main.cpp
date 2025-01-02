@@ -1,4 +1,5 @@
 #include <cstdlib>
+#include <fstream>
 #include <thread>
 
 #include "ChunkMeshManager.hpp"
@@ -23,10 +24,44 @@
 
 namespace {
 
+namespace loader {
+
+template <typename T>
+bool Load(const std::string& path, T& data) {
+  std::ifstream file(path, std::ios::binary);
+  if (!file.is_open()) return false;
+  file.read(reinterpret_cast<char*>(&data), sizeof(T));
+  return true;
+}
+template <typename T>
+void Save(const std::string& path, const T& data) {
+  std::ofstream file(path, std::ios::binary);
+  file.write(reinterpret_cast<const char*>(&data), sizeof(T));
+}
+}  // namespace loader
+
+struct Settings {
+  int radius{30};
+  void Load(const std::string& path) {
+    fmt::println("radius: {}", radius);
+    loader::Load(path, *this);
+    auto& sys = CVarSystem::Get();
+    fmt::println("radius: {}", radius);
+    sys.CreateIntCVar("world.initial_load_radius", "initial load radius of world", radius, radius);
+  }
+  void Save(const std::string& path) {
+    auto& sys = CVarSystem::Get();
+    radius = *sys.GetIntCVar("world.initial_load_radius");
+    fmt::println("radius: {}", radius);
+    loader::Save(path, *this);
+  }
+} settings;
+
 std::unique_ptr<VoxelWorld> world;
 void InitWorld() {
   world = std::make_unique<VoxelWorld>();
   world->Init();
+  world->GenerateWorld(settings.radius);
 }
 VoxelRenderer renderer;
 Window window;
@@ -150,7 +185,7 @@ struct Stats {
     }
     ImGui::Text("Meshes made total: %ld", tot_meshes_made);
     ImGui::Text("Avg mesh time %f us", tot_mesh_time / tot_meshes_made);
-    ImGui::Text("Avg frame time %f ms / %f fps", avg, 1.f / avg);
+    ImGui::Text("Avg frame time %f ms / %f fps", avg * 1000, 1.f / avg);
     // static ImPlotAxisFlags flags = ImPlotAxisFlags_NoTickLabels;
     // static float t = 0;
     // t += dt;
@@ -167,7 +202,8 @@ struct Stats {
     //                      sizeof(vec2));
     //   ImPlot::EndPlot();
     // }
-    ImGui::Text("Curr RSS %ld MB, Peak %ld", getCurrentRSS() / 1024 / 1024, getPeakRSS());
+    ImGui::Text("CPU Memory Usage %ld MB, Peak %ld MB", getCurrentRSS() / (1024ul * 1024),
+                getPeakRSS() / (1024ul * 1024));
     ImGui::Text("Real frame time %f ms / %f fps", frame_time, 1.f / frame_time);
   }
 
@@ -212,6 +248,8 @@ constexpr int MaxMeshTasks = 256;
 }  // namespace
 
 int main() {
+  const char* settings_path = RESOURCE_DIR PATH_SEP "config.bin";
+  settings.Load(settings_path);
   FixedSizePtrPool<MeshAlgData> mesh_alg_pool;
   FixedSizePool<MesherOutputData> mesh_data_pool;
   mesh_alg_pool.Init(MaxMeshTasks);
@@ -280,4 +318,5 @@ int main() {
     stats.frame_time = dt;
   }
   renderer.Cleanup();
+  settings.Save(settings_path);
 }

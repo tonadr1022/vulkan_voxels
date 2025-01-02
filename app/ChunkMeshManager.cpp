@@ -22,7 +22,10 @@ void ChunkMeshManager::Init(VoxelRenderer* renderer) {
       MaxDrawCmds * sizeof(ChunkUniformData), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
       VMA_MEMORY_USAGE_GPU_ONLY);
 
-  renderer_->main_deletion_queue_.PushFunc([this]() { chunk_quad_buffer_.Destroy(); });
+  renderer_->main_deletion_queue_.PushFunc([this]() {
+    renderer_->allocator_.DestroyBuffer(chunk_uniform_gpu_buf_);
+    chunk_quad_buffer_.Destroy();
+  });
 
 #ifdef SINGLE_TRIANGLE_QUADS
   constexpr int MaxQuadsPerChunk = CS3 * 3;
@@ -69,15 +72,11 @@ void ChunkMeshManager::UploadChunkMeshes(std::span<ChunkMeshUpload> uploads,
   for (const auto& [pos, counts, data, tot_cnt] : uploads) {
     auto size_bytes = tot_cnt * QuadSize;
     tot_upload_size_bytes += size_bytes;
-    // upload.vertex_count = count;
-    // upload.uniform = {ivec4(pos, face)};
     uint32_t offset;
     ChunkDrawUniformData d{};
     d.position = ivec4(pos, 0);
     for (int i = 0; i < 6; i++) {
       d.vertex_counts[i] = counts[i];
-      fmt::println("vertex count {}, size_bytes: {}", d.vertex_counts[i],
-                   d.vertex_counts[i] * QuadSize);
     }
     ChunkAllocHandle handle = chunk_quad_buffer_.AddMesh(size_bytes, data, offset, d);
     handles[idx++] = handle;

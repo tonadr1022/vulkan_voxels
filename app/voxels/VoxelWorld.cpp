@@ -23,13 +23,11 @@ void VoxelWorld::Init() {
     // TODO: config
     n.Init(seed_, 0.005, 4);
   }
-  GenerateWorld();
 }
 
-void VoxelWorld::GenerateWorld() {
+void VoxelWorld::GenerateWorld(int radius) {
   ZoneScoped;
   ivec3 iter{0};
-  int radius = 70;
   for (iter.x = 0; iter.x < radius; iter.x++) {
     for (iter.z = 0; iter.z < radius; iter.z++) {
       // TODO: use queue?
@@ -105,7 +103,6 @@ void VoxelWorld::Update() {
         u.tot_cnt = mesh_task.data->vertex_cnt;
         for (int i = 0; i < 6; i++) {
           u.counts[i] = alg_data.face_vertex_lengths[i];
-          fmt::println("{} cnt", u.counts[i]);
         }
         chunk_mesh_uploads_.emplace_back(u);
         stats.tot_meshes++;
@@ -137,7 +134,7 @@ TerrainGenResponse VoxelWorld::ProcessTerrainTask(TerrainGenTask& task) {
   gen::NoiseToHeights(height_map_floats, heights, {0, 32});
   // int i = 0;
   // gen::FillSphere<i8vec3{PCS}>(task.grid->grid, [&i, &white_noise_floats]() {
-  //   return std::fmod((white_noise_floats[i % PCS2] + 1.f) * 128.f, 254) + 1;
+  //   return std::fmod((white_noise_floats[i++ % PCS2] + 1.f) * 128.f, 254) + 1;
   // });
   gen::FillChunk(task.grid->grid, heights, [&white_noise_floats](int x, int, int z) {
     return std::fmod((white_noise_floats[(x * PCS) + z] + 1.f) * 128.f, 254) + 1;

@@ -43,7 +43,7 @@ struct VoxelWorld {
   void Update();
   vec3 position;
   void Init();
-  void GenerateWorld();
+  void GenerateWorld(int radius);
   int world_gen_chunk_payload{};
   int done{};
   int prev_done{};

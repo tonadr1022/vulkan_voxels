@@ -198,7 +198,7 @@ void ShaderWatcher::StartWatching() {
   });
 }
 
-ShaderWatcher::~ShaderWatcher() { StopWatching(); }
+ShaderWatcher::~ShaderWatcher() {}
 
 void ShaderWatcher::StopWatching() {
   {

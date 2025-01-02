@@ -3,6 +3,7 @@
 #include <vulkan/vk_enum_string_helper.h>
 #include <vulkan/vulkan_core.h>
 
+#include <thread>
 #include <tracy/TracyVulkan.hpp>
 
 #include "Config.hpp"
@@ -400,22 +401,25 @@ void Renderer::CreatePipeline(tvk::Pipeline* pipeline, bool force) {
     }
     if (!dirty) return;
   }
+#else
+  (void)force;
 #endif
 
   pipeline->Create(device_, GetCurrentFrame().deletion_queue, set_cache_);
 }
 
-void Renderer::InitShaderWatcher(float wait_time) {
+void Renderer::InitShaderWatcher([[maybe_unused]] float wait_time) {
 #ifdef COMPILE_SHADERS
   std::string glslang_validator_path = tvk::util::FindGlslangValidator();
   tvk::util::CompileShadersToSPIRV(SHADER_DIR, glslang_validator_path, false);
+#endif
+#ifdef SHADER_HOT_RELOAD
   shader_watcher_.Init(
       util::GetCacheFilePath("vulkan_renderer1"), SHADER_DIR,
       [this, glslang_validator_path](const std::string& glsl_path) {
         std::string spv_path = tvk::util::GlslToSpvPath(glsl_path);
         tvk::util::CompileToSPIRV(glslang_validator_path, glsl_path, spv_path);
         dirty_shaders_.insert(spv_path);
-#ifdef SHADER_HOT_RELOAD
         for (const auto& p : pipelines_) {
           for (const tvk::Shader& shader : p->shaders) {
             if (shader.path == spv_path) {
@@ -423,7 +427,6 @@ void Renderer::InitShaderWatcher(float wait_time) {
             }
           }
         }
-#endif
       },
       wait_time);
   shader_watcher_.StartWatching();
@@ -432,7 +435,7 @@ void Renderer::InitShaderWatcher(float wait_time) {
 
 void Renderer::Cleanup() {
   if (is_initialized_) {
-#ifdef COMPILE_SHADERS
+#ifdef SHADER_HOT_RELOAD
     shader_watcher_.StopWatching();
 #endif
     vkDeviceWaitIdle(device_);

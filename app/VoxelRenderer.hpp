@@ -66,4 +66,5 @@ struct VoxelRenderer : public Renderer {
   tvk::Pipeline raymarch_pipeline_;
   tvk::Pipeline chunk_mesh_pipeline_;
   uvec2 draw_dims_;
+  SceneDataUBO scene_data_ubo_cpu;
 };
