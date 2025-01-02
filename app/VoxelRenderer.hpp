@@ -54,6 +54,7 @@ struct VoxelRenderer : public Renderer {
     return extented_frame_data_[frame_num_ % FrameOverlap];
   }
   void UpdateSceneDataUBO();
+  void PrepareAndCullChunks(VkCommandBuffer cmd);
   void DrawChunks(VkDescriptorSet scene_data_set, VkCommandBuffer cmd);
   friend class ChunkMeshManager;
   void DrawChunks(VkCommandBuffer cmd, tvk::AllocatedImage& img);
@@ -61,6 +62,7 @@ struct VoxelRenderer : public Renderer {
   void Draw(bool draw_imgui) override;
   const SceneData* scene_data_;
   StagingBufferPool staging_buffer_pool_;
+  tvk::Pipeline chunk_cull_pipeline_;
   tvk::Pipeline raymarch_pipeline_;
   tvk::Pipeline chunk_mesh_pipeline_;
   uvec2 draw_dims_;

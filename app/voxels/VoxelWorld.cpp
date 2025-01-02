@@ -1,5 +1,6 @@
 #include "VoxelWorld.hpp"
 
+#include "ChunkMeshManager.hpp"
 #include "application/ThreadPool.hpp"
 #include "imgui.h"
 #include "pch.hpp"
@@ -29,8 +30,9 @@ void VoxelWorld::GenerateWorld() {
   ZoneScoped;
   ivec3 iter{0};
   int radius = 70;
-  for (iter.x = 0; iter.x <= radius; iter.x++) {
-    for (iter.z = 0; iter.z <= radius; iter.z++) {
+  for (iter.x = 0; iter.x < radius; iter.x++) {
+    for (iter.z = 0; iter.z < radius; iter.z++) {
+      // TODO: use queue?
       to_gen_terrain_tasks_.emplace_back(iter);
       world_gen_chunk_payload++;
     }
@@ -99,12 +101,12 @@ void VoxelWorld::Update() {
         auto chunk_pos = mesh_task.grid->pos;
         for (int i = 0; i < 6; i++) {
           if (alg_data.face_vertex_lengths[i]) {
-            uint32_t base_instance =
-                (i << 24) | (chunk_pos.z << 16) | (chunk_pos.y << 16) | (chunk_pos.x);
+            // uint32_t base_instance =
+            //     (i << 24) | (chunk_pos.z << 16) | (chunk_pos.y << 16) | (chunk_pos.x);
             ChunkMeshUpload u;
             u.pos = chunk_pos;
             u.count = alg_data.face_vertex_lengths[i];
-            u.first_instance = base_instance;
+            u.face = i;
             u.data = &mesh_task.data->vertices[alg_data.face_vertices_start_indices[i]];
             chunk_mesh_uploads_.emplace_back(u);
             stats.tot_quads += u.count;
@@ -121,7 +123,9 @@ void VoxelWorld::Update() {
   }
 
   if (chunk_mesh_uploads_.size()) {
-    ChunkMeshManager::Get().UploadChunkMeshes(chunk_mesh_uploads_);
+    // TODO: fix
+    std::vector<ChunkAllocHandle> handles(chunk_mesh_uploads_.size());
+    ChunkMeshManager::Get().UploadChunkMeshes(chunk_mesh_uploads_, handles);
   }
 }
 
@@ -135,6 +139,10 @@ TerrainGenResponse VoxelWorld::ProcessTerrainTask(TerrainGenTask& task) {
   fbm_noise.FillWhiteNoise<i8vec3{PCS}>(white_noise_floats, ivec2{task.pos.x, task.pos.z} * CS);
   fbm_noise.FillNoise<i8vec3{PCS}>(height_map_floats, ivec2{task.pos.x, task.pos.z} * CS);
   gen::NoiseToHeights(height_map_floats, heights, {0, 32});
+  // int i = 0;
+  // gen::FillSphere<i8vec3{PCS}>(task.grid->grid, [&i, &white_noise_floats]() {
+  //   return std::fmod((white_noise_floats[i % PCS2] + 1.f) * 128.f, 254) + 1;
+  // });
   gen::FillChunk(task.grid->grid, heights, [&white_noise_floats](int x, int, int z) {
     return std::fmod((white_noise_floats[(x * PCS) + z] + 1.f) * 128.f, 254) + 1;
   });

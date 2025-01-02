@@ -61,11 +61,19 @@ AllocatedImage Allocator::CreateImage2D(VkExtent2D size, VkFormat format, VkImag
   return new_image;
 }
 
+namespace {
+Allocator* instance = nullptr;
+}
+
 void Allocator::Init(VkDevice device, VmaAllocator allocator) {
+  assert(!instance);
+  instance = this;
   assert(device != VK_NULL_HANDLE);
   device_ = device;
   allocator_ = allocator;
 }
+
+Allocator& Allocator::Get() { return *instance; }
 
 uint32_t GetMipLevels(VkExtent2D size) {
   return static_cast<uint32_t>(std::floor(std::log2(std::max(size.width, size.height)))) + 1;

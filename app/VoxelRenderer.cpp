@@ -22,6 +22,7 @@
 using tvk::DescriptorBuilder;
 using tvk::ImagePipelineState;
 using tvk::PipelineBarrier;
+using tvk::init::BufferBarrier;
 using tvk::init::ImageBarrier;
 using tvk::init::ImageBarrierUpdate;
 using tvk::util::BlitImage;
@@ -39,10 +40,13 @@ inline AutoCVarInt reverse_z{"renderer.reverse_z", "Reverse Depth Buffer", 1,
 }  // namespace
 void VoxelRenderer::Draw(bool draw_imgui) {
   ZoneScoped;
+  ChunkMeshManager::Get().CopyDrawBuffers();
+
   if (!UpdateSwapchainAndCheckIfReady()) {
     return;
   }
   WaitForMainRenderFence();
+
   ChunkMeshManager::Get().Update();
   FlushFrameData();
   if (!AcquireNextImage()) {
@@ -83,6 +87,22 @@ void VoxelRenderer::Draw(bool draw_imgui) {
   auto cmd_begin_info =
       tvk::init::CommandBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
   VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
+
+  PrepareAndCullChunks(cmd);
+
+  auto& chunk_vert_pool = ChunkMeshManager::Get().chunk_quad_buffer_;
+  VkBufferMemoryBarrier2 buffer_barriers[] = {
+      BufferBarrier(chunk_vert_pool.draw_infos_gpu_buf.buffer, graphics_queue_family_,
+                    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
+                    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT),
+      BufferBarrier(chunk_vert_pool.draw_cmd_gpu_buf.buffer, graphics_queue_family_,
+                    VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, 0, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                    VK_ACCESS_2_SHADER_WRITE_BIT),
+      BufferBarrier(chunk_vert_pool.draw_count_buffer.buffer, graphics_queue_family_,
+                    VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, 0, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                    VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT),
+  };
+  PipelineBarrier(cmd, 0, buffer_barriers, {});
 
   tvk::ImageAndState* img_barriers[] = {&draw_img_state, &depth_img_state};
   PipelineBarrier(cmd, 0, img_barriers);
@@ -202,13 +222,15 @@ void VoxelRenderer::InitPipelines() {
     p_builder.pipeline_layout = p.layout;
     p_builder.SetShaders(shaders);
     p_builder.SetCullMode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+    // p_builder.SetCullMode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
     p.pipeline = p_builder.BuildPipeline(device_);
   };
 
   chunk_mesh_pipeline_.shaders = {tvk::Shader{"voxels/chunk.vert"},
                                   tvk::Shader{"voxels/chunk.frag"}};
   pipelines_.push_back(&chunk_mesh_pipeline_);
-  RegisterComputePipelines({{&raymarch_pipeline_, "voxels/raymarch_voxel.comp"}});
+  RegisterComputePipelines({{&raymarch_pipeline_, "voxels/raymarch_voxel.comp"},
+                            {&chunk_cull_pipeline_, "voxels/chunk_cull.comp"}});
 }
 
 void VoxelRenderer::Draw(const SceneData* scene_data, bool draw_imgui) {
@@ -268,18 +290,24 @@ void VoxelRenderer::Init(Window* window) {
 }
 
 VoxelRenderer::VoxelRenderer() : staging_buffer_pool_(allocator_) {}
+
 void VoxelRenderer::DrawChunks(VkDescriptorSet scene_data_set, VkCommandBuffer cmd) {
   TracyVkZone(graphics_queue_ctx_, cmd, "DrawChunks");
-  auto& buf = ChunkMeshManager::Get().draw_indir_gpu_buf_;
-  if (!buf.buffer) {
+  auto& mgr = ChunkMeshManager::Get();
+
+  if (!mgr.chunk_quad_buffer_.draw_cmds_count) {
+    return;
+  }
+  auto& quad_buf = mgr.chunk_quad_buffer_.quad_gpu_buf;
+  if (!quad_buf.buffer) {
     return;
   }
   chunk_mesh_pipeline_.BindGraphics(cmd);
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                           chunk_mesh_pipeline_.pipeline->layout, 0, 1, &scene_data_set, 0, nullptr);
 
-  auto info = ChunkMeshManager::Get().chunk_quad_buffer_.device_buffer.GetInfo();
-  auto uniform_buf_info = ChunkMeshManager::Get().chunk_uniform_gpu_buf_.GetInfo();
+  auto info = ChunkMeshManager::Get().chunk_quad_buffer_.quad_gpu_buf.GetInfo();
+  auto uniform_buf_info = mgr.chunk_uniform_gpu_buf_.GetInfo();
   DescriptorBuilder b;
   VkDescriptorSet quad_set =
       b.Begin(VK_SHADER_STAGE_VERTEX_BIT)
@@ -291,8 +319,74 @@ void VoxelRenderer::DrawChunks(VkDescriptorSet scene_data_set, VkCommandBuffer c
   vkCmdBindIndexBuffer(cmd, ChunkMeshManager::Get().quad_index_buf_.buffer, 0,
                        VK_INDEX_TYPE_UINT32);
   // TODO: don't rely on that size
-  vkCmdDrawIndexedIndirect(cmd, buf.buffer, 0, ChunkMeshManager::Get().draw_indir_cmds_.size(),
-                           sizeof(DIIC));
+  vkCmdDrawIndexedIndirectCount(cmd, mgr.chunk_quad_buffer_.draw_cmd_gpu_buf.buffer, 0,
+                                mgr.chunk_quad_buffer_.draw_count_buffer.buffer, 0,
+                                mgr.chunk_quad_buffer_.draw_cmds_count,
+                                sizeof(VkDrawIndexedIndirectCommand));
 }
 
 void VoxelRenderer::UpdateSceneDataUBO() {}
+
+void VoxelRenderer::PrepareAndCullChunks(VkCommandBuffer cmd) {
+  auto& chunk_vert_pool = ChunkMeshManager::Get().chunk_quad_buffer_;
+  // write to the draws buf
+
+  // clear draw count compute buffer
+  {
+    VkBufferMemoryBarrier2 buffer_barriers[] = {
+        BufferBarrier(chunk_vert_pool.draw_count_buffer.buffer, graphics_queue_family_,
+                      VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, 0, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                      VK_ACCESS_2_TRANSFER_WRITE_BIT),
+    };
+    PipelineBarrier(cmd, 0, buffer_barriers, {});
+  }
+  vkCmdFillBuffer(cmd, chunk_vert_pool.draw_count_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
+
+  auto draw_info_info = chunk_vert_pool.draw_infos_gpu_buf.GetInfo();
+  auto draw_cmds_info = chunk_vert_pool.draw_cmd_gpu_buf.GetInfo();
+  auto draw_count_info = chunk_vert_pool.draw_count_buffer.GetInfo();
+  auto chunk_uniforms_info = ChunkMeshManager::Get().chunk_uniform_gpu_buf_.GetInfo();
+  VkBufferMemoryBarrier2 buffer_barriers[] = {
+      BufferBarrier(chunk_vert_pool.draw_infos_gpu_buf.buffer, graphics_queue_family_,
+                    VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, 0, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                    VK_ACCESS_2_SHADER_READ_BIT),
+      BufferBarrier(chunk_vert_pool.draw_cmd_gpu_buf.buffer, graphics_queue_family_,
+                    VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, 0, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                    VK_ACCESS_2_SHADER_WRITE_BIT),
+      BufferBarrier(ChunkMeshManager::Get().chunk_uniform_gpu_buf_.buffer, graphics_queue_family_,
+                    VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, 0, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                    VK_ACCESS_2_SHADER_WRITE_BIT),
+      BufferBarrier(chunk_vert_pool.draw_count_buffer.buffer, graphics_queue_family_,
+                    VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                    VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT),
+  };
+  PipelineBarrier(cmd, 0, buffer_barriers, {});
+
+  DescriptorBuilder b;
+  VkDescriptorSet s = b.Begin(VK_SHADER_STAGE_COMPUTE_BIT)
+                          .WriteBuffer(0, &draw_info_info, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+                          .WriteBuffer(1, &draw_cmds_info, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+                          .WriteBuffer(2, &chunk_uniforms_info, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+                          .WriteBuffer(3, &draw_count_info, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+                          .Build(device_, set_cache_, GetCurrentFrame().frame_descriptors);
+  chunk_cull_pipeline_.BindCompute(cmd);
+  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                          chunk_cull_pipeline_.pipeline->layout, 0, 1, &s, 0, nullptr);
+  vkCmdDispatch(cmd, (chunk_vert_pool.draw_cmds_count + 63) / 64, 1, 1);
+  {
+    VkBufferMemoryBarrier2 buffer_barriers[] = {
+        BufferBarrier(chunk_vert_pool.draw_cmd_gpu_buf.buffer, graphics_queue_family_,
+                      VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT,
+                      VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT),
+        BufferBarrier(ChunkMeshManager::Get().chunk_uniform_gpu_buf_.buffer, graphics_queue_family_,
+                      VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT,
+                      VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT),
+        BufferBarrier(chunk_vert_pool.draw_count_buffer.buffer, graphics_queue_family_,
+                      VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                      VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+                      VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT),
+    };
+    PipelineBarrier(cmd, 0, buffer_barriers, {});
+  }
+}

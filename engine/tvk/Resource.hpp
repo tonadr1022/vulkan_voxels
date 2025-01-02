@@ -8,6 +8,7 @@
 namespace tvk {
 
 struct Allocator {
+  static Allocator& Get();
   void Init(VkDevice device, VmaAllocator allocator);
   [[nodiscard]] AllocatedBuffer CreateBuffer(size_t alloc_size, VkBufferUsageFlags usage,
                                              VmaMemoryUsage memory_usage,
