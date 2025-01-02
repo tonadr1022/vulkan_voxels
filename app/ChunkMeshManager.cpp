@@ -66,21 +66,24 @@ void ChunkMeshManager::UploadChunkMeshes(std::span<ChunkMeshUpload> uploads,
 
   size_t tot_upload_size_bytes{0};
   size_t idx = 0;
-  for (const auto& [pos, count, face, data] : uploads) {
-    EASSERT(count);
-    auto size_bytes = count * QuadSize;
+  for (const auto& [pos, counts, data, tot_cnt] : uploads) {
+    auto size_bytes = tot_cnt * QuadSize;
     tot_upload_size_bytes += size_bytes;
-    ChunkMeshUploadInternal upload{};
-    upload.vertex_count = count;
-    upload.uniform = {ivec4(pos, face)};
-    ChunkUniformData d;
-    d.pos = ivec4(pos, face);
+    // upload.vertex_count = count;
+    // upload.uniform = {ivec4(pos, face)};
     uint32_t offset;
+    ChunkDrawUniformData d{};
+    d.position = ivec4(pos, 0);
+    for (int i = 0; i < 6; i++) {
+      d.vertex_counts[i] = counts[i];
+      fmt::println("vertex count {}, size_bytes: {}", d.vertex_counts[i],
+                   d.vertex_counts[i] * QuadSize);
+    }
     ChunkAllocHandle handle = chunk_quad_buffer_.AddMesh(size_bytes, data, offset, d);
     handles[idx++] = handle;
-    upload.handle = handle;
-    upload.base_vertex = (offset / QuadSize) << 2;
-    new_mesh_upload_batch.data.uploads.emplace_back(upload);
+    // upload.handle = handle;
+    // upload.base_vertex = (offset / QuadSize) << 2;
+    // new_mesh_upload_batch.data.uploads.emplace_back();
   }
   if (!tot_upload_size_bytes) return;
   std::unique_ptr<tvk::AllocatedBuffer> buf =
@@ -136,6 +139,7 @@ void ChunkMeshManager::DrawImGuiStats() const {
 }
 
 void ChunkMeshManager::CopyDrawBuffers() {
+  ZoneScoped;
   chunk_quad_buffer_.ResizeBuffers(renderer_->GetCurrentFrame().deletion_queue);
   // TODO: refactor
   if (chunk_quad_buffer_.draw_cmds_count > chunk_uniform_gpu_buf_.size / sizeof(ChunkUniformData)) {
@@ -149,8 +153,6 @@ void ChunkMeshManager::CopyDrawBuffers() {
 
   chunk_quad_buffer_.CopyDrawsToStaging();
 
-  renderer_->ImmediateSubmit([this](VkCommandBuffer cmd) {
-    vkCmdFillBuffer(cmd, chunk_quad_buffer_.draw_count_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
-    chunk_quad_buffer_.CopyDrawsStagingToGPU(cmd);
-  });
+  // renderer_->ImmediateSubmit(
+  //     [this](VkCommandBuffer cmd) { chunk_quad_buffer_.CopyDrawsStagingToGPU(cmd); });
 }

@@ -13,6 +13,7 @@ struct DrawInfo {
     uint vertex_offset;
     uint size_bytes;
     ivec4 pos;
+    uint vertex_counts[8];
 };
 
 struct UniformData {
@@ -44,21 +45,26 @@ void main() {
     if (g_id >= in_draw_info.length()) return;
     DrawInfo info = in_draw_info[g_id];
     if (info.handle == uvec2(0)) return;
-    // TODO: visibility test
 
-    uint insert_idx = atomicAdd(next_idx, 1);
-    DrawIndexedIndirectCmd cmd;
-    cmd.instance_count = 1;
-    cmd.first_instance = insert_idx;
-    cmd.vertex_offset = (info.vertex_offset / VERTEX_SIZE) << 2;
-    #ifdef SINGLE_TRIANGLE_QUAD
-    cmd.index_count = (info.size_bytes / VERTEX_SIZE) * 3;
-    #else
-    cmd.index_count = (info.size_bytes / VERTEX_SIZE) * 6;
-    #endif
-    cmd.first_index = 0;
-    UniformData uniform_data;
-    uniform_data.pos = info.pos;
-    out_uniforms[insert_idx] = uniform_data;
-    out_draw_cmds[insert_idx] = cmd;
+    // TODO: visibility test
+    uint offset = info.vertex_offset;
+    for (int i = 0; i < 6; i++) {
+        uint insert_idx = atomicAdd(next_idx, 1);
+        DrawIndexedIndirectCmd cmd;
+        cmd.instance_count = 1;
+        cmd.first_instance = insert_idx;
+        uint size_bytes = info.vertex_counts[i] * VERTEX_SIZE;
+        cmd.vertex_offset = (offset / VERTEX_SIZE) << 2;
+        #ifdef SINGLE_TRIANGLE_QUAD
+        cmd.index_count = (size_bytes / VERTEX_SIZE) * 3;
+        #else
+        cmd.index_count = (size_bytes / VERTEX_SIZE) * 6;
+        #endif
+        cmd.first_index = 0;
+        UniformData uniform_data;
+        uniform_data.pos = ivec4(info.pos.xyz, i);
+        out_uniforms[insert_idx] = uniform_data;
+        out_draw_cmds[insert_idx] = cmd;
+        offset += size_bytes;
+    }
 }

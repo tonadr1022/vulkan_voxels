@@ -270,7 +270,7 @@ struct VertexPool {
 
   // TODO: for chunks specifically, can group the copies since the mesh from the mesher has all 6
   // faces combined contiguously
-  uint32_t AddMesh(uint32_t size_bytes, void* data, uint32_t& offset, UserT user_data = {}) {
+  uint32_t AddMesh(uint32_t size_bytes, void* data, uint32_t& offset, UserT user_data) {
     ZoneScoped;
     auto handle = draw_cmd_allocator.Allocate(size_bytes, offset, user_data);
     copies.emplace_back(curr_copies_tot_size_bytes, offset, size_bytes);

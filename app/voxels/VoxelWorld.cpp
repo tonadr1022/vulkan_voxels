@@ -98,21 +98,17 @@ void VoxelWorld::Update() {
     while (mesh_ts_.in_flight > 0 && mesh_ts_.done_tasks.try_dequeue(mesh_task)) {
       auto& alg_data = *mesh_alg_pool_.Get(mesh_task.alg_data_idx);
       if (mesh_task.data->vertex_cnt) {
-        auto chunk_pos = mesh_task.grid->pos;
+        stats.tot_quads += mesh_task.data->vertex_cnt;
+        ChunkMeshUpload u{};
+        u.data = mesh_task.data->vertices.data();
+        u.pos = mesh_task.grid->pos;
+        u.tot_cnt = mesh_task.data->vertex_cnt;
         for (int i = 0; i < 6; i++) {
-          if (alg_data.face_vertex_lengths[i]) {
-            // uint32_t base_instance =
-            //     (i << 24) | (chunk_pos.z << 16) | (chunk_pos.y << 16) | (chunk_pos.x);
-            ChunkMeshUpload u;
-            u.pos = chunk_pos;
-            u.count = alg_data.face_vertex_lengths[i];
-            u.face = i;
-            u.data = &mesh_task.data->vertices[alg_data.face_vertices_start_indices[i]];
-            chunk_mesh_uploads_.emplace_back(u);
-            stats.tot_quads += u.count;
-            stats.tot_meshes++;
-          }
+          u.counts[i] = alg_data.face_vertex_lengths[i];
+          fmt::println("{} cnt", u.counts[i]);
         }
+        chunk_mesh_uploads_.emplace_back(u);
+        stats.tot_meshes++;
       }
       mesh_ts_.in_flight--;
       grid_pool_.Free(mesh_task.grid);

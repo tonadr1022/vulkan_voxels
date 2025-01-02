@@ -2,7 +2,7 @@
 
 struct ChunkMeshUpload {
   ivec3 pos;
-  uint32_t count;
-  uint32_t face;
+  uint32_t counts[6];
   void* data;
+  uint32_t tot_cnt;
 };
