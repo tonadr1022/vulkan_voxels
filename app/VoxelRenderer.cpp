@@ -328,6 +328,7 @@ void VoxelRenderer::DrawChunks(VkDescriptorSet scene_data_set, VkCommandBuffer c
 void VoxelRenderer::UpdateSceneDataUBO() {}
 
 void VoxelRenderer::PrepareAndCullChunks(VkCommandBuffer cmd) {
+  ZoneScoped;
   auto& chunk_vert_pool = ChunkMeshManager::Get().chunk_quad_buffer_;
   {
     TracyVkZone(graphics_queue_ctx_, cmd, "CopyDrawsToGPU");

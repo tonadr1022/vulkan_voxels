@@ -186,13 +186,14 @@ struct VertexPool {
   uint32_t draw_cmds_count{};
 
   void CopyDrawsToStaging() {
+    ZoneScoped;
     auto& allocs = draw_cmd_allocator.Allocs();
     memcpy(draw_infos_staging.data, allocs.data(), sizeof(Allocation<UserT>) * allocs.size());
   }
 
   void CopyDrawsStagingToGPU(VkCommandBuffer cmd) {
     VkBufferCopy copy{};
-    copy.size = draw_infos_staging.size;
+    copy.size = sizeof(Allocation<UserT>) * draw_cmd_allocator.Allocs().size();
     vkCmdCopyBuffer(cmd, draw_infos_staging.buffer, draw_infos_gpu_buf.buffer, 1, &copy);
   }
 
