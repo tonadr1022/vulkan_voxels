@@ -9,10 +9,9 @@ struct DrawIndexedIndirectCmd {
 };
 
 struct DrawInfo {
+    uvec2 handle;
     uint vertex_offset;
-    uint bits;
     uint size_bytes;
-    uint pad;
     ivec4 pos;
 };
 
@@ -44,9 +43,7 @@ void main() {
     uint g_id = gl_GlobalInvocationID.x;
     if (g_id >= in_draw_info.length()) return;
     DrawInfo info = in_draw_info[g_id];
-    bool mesh_ready = bool(info.bits & 0x10);
-    bool allocated = bool(info.bits & 0x1);
-    if (!allocated || !mesh_ready) return;
+    if (info.handle == uvec2(0)) return;
     // TODO: visibility test
 
     uint insert_idx = atomicAdd(next_idx, 1);

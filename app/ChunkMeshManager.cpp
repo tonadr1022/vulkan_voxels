@@ -119,9 +119,9 @@ void ChunkMeshManager::Update() {
     if (status == VK_SUCCESS) {
       renderer_->staging_buffer_pool_.ReturnBuffer(std::move(upload.staging_buf));
       // mesh upload finished, add the draw command
-      for (const auto& u : upload.data.uploads) {
-        reinterpret_cast<Allocation<ChunkUniformData>*>(u.handle)->bits |= 0x10;
-      }
+      // for (const auto& u : upload.data.uploads) {
+      //   reinterpret_cast<Allocation<ChunkUniformData>*>(u.handle)->bits |= 0x10;
+      // }
       renderer_->free_transfer_cmd_buffers_.emplace_back(upload.transfer.cmd);
       renderer_->fence_pool_.AddFreeFence(upload.transfer.fence);
       it = pending_mesh_uploads_.erase(it);

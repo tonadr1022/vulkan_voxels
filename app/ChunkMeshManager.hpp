@@ -15,7 +15,7 @@ struct VoxelRenderer;
 struct ChunkUniformData {
   ivec4 pos;
 };
-using ChunkAllocHandle = void*;
+using ChunkAllocHandle = uint32_t;
 class ChunkMeshManager {
  public:
   static ChunkMeshManager& Get();

@@ -2,19 +2,17 @@
 
 #include <vulkan/vulkan_core.h>
 
-#include <list>
-
 #include "DeletionQueue.hpp"
 #include "Resource.hpp"
 #include "Types.hpp"
+
 struct NoneT {};
 
 template <typename UT = NoneT>
 struct Allocation {
+  uint64_t handle{0};
   uint32_t offset{0};
-  uint32_t bits{0};
   uint32_t size_bytes{0};
-  uint32_t pad1;
   UT user_data;
   explicit Allocation(UT data = {}) : user_data(data) {}
 };
@@ -22,10 +20,10 @@ struct Allocation {
 template <>
 struct Allocation<void> {
   Allocation() = default;
+  uint64_t handle{0};
   uint32_t offset{0};
   uint32_t size_bytes{0};
 };
-
 /*
  * glBuffer allocator. Can allocate and free blocks. The Allocation struct contains metadata for
  * each block, including user defined data via templating. The current primary use of templating
@@ -35,18 +33,17 @@ template <typename UserT = NoneT>
 class DynamicBuffer {
  public:
   DynamicBuffer() = default;
-  static constexpr uint32_t AllocatedBit = 0x1;
 
   void Init(uint32_t size_bytes, uint32_t alignment) {
     alignment_ = alignment;
     // align the size
-    size_bytes = (size_bytes + alignment_ - 1) & ~(alignment_ - 1);
+    size_bytes += (alignment_ - (size_bytes % alignment_)) % alignment_;
 
     // create one large free block
     Allocation<UserT> empty_alloc{};
     empty_alloc.size_bytes = size_bytes;
     empty_alloc.offset = 0;
-    empty_alloc.bits = 0;
+    empty_alloc.handle = 0;
     allocs_.push_back(empty_alloc);
   }
 
@@ -56,6 +53,7 @@ class DynamicBuffer {
     if (&other == this) return *this;
     allocs_ = std::move(other.allocs_);
     alignment_ = other.alignment_;
+    next_handle_ = other.next_handle_;
     num_active_allocs_ = other.num_active_allocs_;
     return *this;
   }
@@ -63,21 +61,20 @@ class DynamicBuffer {
   DynamicBuffer& operator=(DynamicBuffer&& other) noexcept { *this = std::move(other); }
 
   [[nodiscard]] constexpr uint32_t AllocSize() const { return sizeof(Allocation<UserT>); }
-  [[nodiscard]] const std::list<Allocation<UserT>>& Allocs() const { return allocs_; }
+  [[nodiscard]] const auto& Allocs() const { return allocs_; }
 
   // Updates the offset parameter
-  [[nodiscard]] Allocation<UserT>* Allocate(uint32_t size_bytes, uint32_t& offset,
-                                            UserT user_data = {}) {
+  [[nodiscard]] uint32_t Allocate(uint32_t size_bytes, uint32_t& offset, UserT user_data = {}) {
     ZoneScoped;
     // align the size
-    size_bytes = (size_bytes + alignment_ - 1) & ~(alignment_ - 1);
+    size_bytes += (alignment_ - (size_bytes % alignment_)) % alignment_;
     auto smallest_free_alloc = allocs_.end();
     {
       ZoneScopedN("smallest free alloc");
       // find the smallest free allocation that is large enough
       for (auto it = allocs_.begin(); it != allocs_.end(); it++) {
         // adequate if free and size fits
-        if (it->bits == 0 && it->size_bytes >= size_bytes) {
+        if (it->handle == 0 && it->size_bytes >= size_bytes) {
           // if it's the first or it's smaller, set it to the new smallest free alloc
           if (smallest_free_alloc == allocs_.end() ||
               it->size_bytes < smallest_free_alloc->size_bytes) {
@@ -87,18 +84,17 @@ class DynamicBuffer {
       }
       // if there isn't an allocation small enough, return 0, null handle
       if (smallest_free_alloc == allocs_.end()) {
-        EASSERT(0 && "no space");
+        assert(0 && "no space");
         return 0;
       }
     }
 
     // create new allocation
     Allocation<UserT> new_alloc{user_data};
-    new_alloc.bits = AllocatedBit;
+    new_alloc.handle = next_handle_++;
     new_alloc.offset = smallest_free_alloc->offset;
     new_alloc.size_bytes = size_bytes;
 
-    Allocation<UserT>* ret;
     // update free allocation
     smallest_free_alloc->size_bytes -= size_bytes;
     smallest_free_alloc->offset += size_bytes;
@@ -106,41 +102,41 @@ class DynamicBuffer {
     // if smallest free alloc is now empty, replace it, otherwise insert it
     if (smallest_free_alloc->size_bytes == 0) {
       *smallest_free_alloc = new_alloc;
-      ret = &(*smallest_free_alloc);
     } else {
       ZoneScopedN("Insert");
-      ret = &(*allocs_.insert(smallest_free_alloc, new_alloc));
+      allocs_.insert(smallest_free_alloc, new_alloc);
     }
 
     ++num_active_allocs_;
     offset = new_alloc.offset;
-    return ret;
+    return new_alloc.handle;
   }
 
-  void Free(Allocation<UserT>* it) {
+  void Free(uint32_t handle) {
     ZoneScoped;
-    // TODO: very risky business here
-    it->bits = 0;
+    if (handle == 0) return;
+    auto it = allocs_.end();
+    for (it = allocs_.begin(); it != allocs_.end(); it++) {
+      if (it->handle == handle) break;
+    }
+    if (it == allocs_.end()) {
+      return;
+    }
+
+    it->handle = 0;
     Coalesce(it);
+
     --num_active_allocs_;
   }
 
   [[nodiscard]] uint32_t NumActiveAllocs() const { return num_active_allocs_; }
 
-  void CopyAllocs(void* data) {
-    auto* ptr = reinterpret_cast<Allocation<UserT>*>(data);
-    for (const auto& a : allocs_) {
-      *ptr = a;
-      ptr++;
-    }
-  }
-
-  // TODO: move back to private
-  std::list<Allocation<UserT>> allocs_;
-
  private:
   uint32_t alignment_{0};
+  uint64_t next_handle_{1};
   uint32_t num_active_allocs_{0};
+
+  std::vector<Allocation<UserT>> allocs_;
 
   using Iterator = decltype(allocs_.begin());
   void Coalesce(Iterator& it) {
@@ -153,7 +149,7 @@ class DynamicBuffer {
     // merge with next alloc
     if (it != allocs_.end() - 1) {
       auto next = it + 1;
-      if (next->bits == 0) {
+      if (next->handle == 0) {
         it->size_bytes += next->size_bytes;
         remove_next = true;
       }
@@ -162,7 +158,7 @@ class DynamicBuffer {
     // merge with previous alloc
     if (it != allocs_.begin()) {
       auto prev = it - 1;
-      if (prev->bits == 0) {
+      if (prev->handle == 0) {
         prev->size_bytes += it->size_bytes;
         remove_it = true;
       }
@@ -189,7 +185,10 @@ struct VertexPool {
   tvk::AllocatedBuffer draw_count_buffer{};
   uint32_t draw_cmds_count{};
 
-  void CopyDrawsToStaging() { draw_cmd_allocator.CopyAllocs(draw_infos_staging.data); }
+  void CopyDrawsToStaging() {
+    auto& allocs = draw_cmd_allocator.Allocs();
+    memcpy(draw_infos_staging.data, allocs.data(), sizeof(Allocation<UserT>) * allocs.size());
+  }
 
   void CopyDrawsStagingToGPU(VkCommandBuffer cmd) {
     VkBufferCopy copy{};
@@ -264,15 +263,14 @@ struct VertexPool {
         VMA_MEMORY_USAGE_GPU_ONLY);
   }
 
-  void FreeMesh(Allocation<UserT>* handle) {
+  void FreeMesh(uint32_t handle) {
     draw_cmds_count--;
     draw_cmd_allocator.Free(handle);
   }
 
   // TODO: for chunks specifically, can group the copies since the mesh from the mesher has all 6
   // faces combined contiguously
-  // TODO: don't return void*
-  void* AddMesh(uint32_t size_bytes, void* data, uint32_t& offset, UserT user_data = {}) {
+  uint32_t AddMesh(uint32_t size_bytes, void* data, uint32_t& offset, UserT user_data = {}) {
     ZoneScoped;
     auto handle = draw_cmd_allocator.Allocate(size_bytes, offset, user_data);
     copies.emplace_back(curr_copies_tot_size_bytes, offset, size_bytes);
