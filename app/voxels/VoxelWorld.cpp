@@ -28,8 +28,8 @@ void VoxelWorld::Init() {
 void VoxelWorld::GenerateWorld(int radius) {
   ZoneScoped;
   ivec3 iter{0};
-  for (iter.x = 0; iter.x < radius; iter.x++) {
-    for (iter.z = 0; iter.z < radius; iter.z++) {
+  for (iter.x = -radius; iter.x <= radius; iter.x++) {
+    for (iter.z = -radius; iter.z <= radius; iter.z++) {
       // TODO: use queue?
       to_gen_terrain_tasks_.emplace_back(iter);
       world_gen_chunk_payload++;

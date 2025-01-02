@@ -3,6 +3,7 @@
 #include "StagingBufferPool.hpp"
 #include "application/Renderer.hpp"
 #include "tvk/Pipeline.hpp"
+#include "voxels/Frustum.hpp"
 
 struct SceneData {
   vec3 cam_dir;
@@ -66,5 +67,6 @@ struct VoxelRenderer : public Renderer {
   tvk::Pipeline raymarch_pipeline_;
   tvk::Pipeline chunk_mesh_pipeline_;
   uvec2 draw_dims_;
-  SceneDataUBO scene_data_ubo_cpu;
+  SceneDataUBO scene_data_ubo_cpu_;
+  Frustum frustum_cpu_;
 };

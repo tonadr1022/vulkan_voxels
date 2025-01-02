@@ -11,9 +11,10 @@ struct DrawIndexedIndirectCmd {
 };
 
 struct DrawInfo {
-    uvec2 handle;
+    uint handle;
     uint vertex_offset;
     uint size_bytes;
+    uint chunk_mult;
     ivec4 pos;
     uint vertex_counts[8];
 };
@@ -39,10 +40,14 @@ layout(std430, binding = 3) restrict buffer ssbo_4 {
 };
 
 layout(push_constant) uniform pc {
-    mat4 cam_view;
-    vec4 cam_dir;
     vec4 cam_pos;
-    uint cull_cam;
+    vec4 plane0;
+    vec4 plane1;
+    vec4 plane2;
+    vec4 plane3;
+    vec4 plane4;
+    vec4 plane5;
+    uvec4 bits;
 };
 
 const vec3 normal_lookup[6] = vec3[6](
@@ -58,32 +63,53 @@ vec3 CalculateFaceCenter(vec3 chunk_center, vec3 face_normal, float chunk_size) 
     return chunk_center + 0.5 * chunk_size * face_normal;
 }
 
+bool CullFrustum(vec4 pos, float radius) {
+    #define cull(x) dot(pos, x) + radius >= 0.0
+    return cull(plane0) && cull(plane1) && cull(plane2) && cull(plane3) && cull(plane4) && cull(plane5);
+}
+
+bool BackFaceCull(vec3 chunk_center, uint face, float chunk_size, ivec3 chunk_pos) {
+    int cam_chunk_y = int(floor(cam_pos.y / chunk_size));
+    vec3 face_normal = normal_lookup[face];
+    vec3 face_center = CalculateFaceCenter(chunk_center, face_normal, chunk_size);
+    vec3 cam_to_face = face_center - cam_pos.xyz;
+    bool visible = dot(cam_to_face, face_normal) < 0.0;
+    return visible || cam_chunk_y == chunk_pos.y;
+}
+
 #define VERTEX_SIZE 8
 #define SINGLE_TRIANGLE_QUAD
+
 void main() {
     uint g_id = gl_GlobalInvocationID.x;
     if (g_id >= in_draw_info.length()) return;
     DrawInfo info = in_draw_info[g_id];
-    if (info.handle == uvec2(0)) return;
+    if (info.handle == 0) return;
 
-    vec3 chunk_center = vec3(info.pos.xyz) * 62.0 + vec3(31.0);
+    float chunk_size = info.chunk_mult * 62.0;
+    float half_chunk_size = chunk_size * 0.5;
+    vec3 chunk_center = vec3(info.pos.xyz) * chunk_size + vec3(half_chunk_size);
 
     // TODO: visibility test
     uint offset = info.vertex_offset;
-    int cam_chunk_y = int(floor(cam_pos.y / 62.0));
+    const bool freeze_cull = bool(bits.x & 0x4);
+    if (freeze_cull) return;
+    const bool backface_cull_enabled = !freeze_cull && bool(bits.x & 0x1);
+    const bool frustum_cull_enabled = !freeze_cull && bool(bits.x & 0x2);
+    if (frustum_cull_enabled) {
+        const float radius = sqrt(half_chunk_size * half_chunk_size + half_chunk_size * half_chunk_size);
+        vec4 pos = vec4(chunk_center - cam_pos.xyz, 1.0);
+        if (!CullFrustum(pos, radius)) return;
+    }
+
     for (int i = 0; i < 6; i++) {
         vec3 face_normal = normal_lookup[i];
         uint size_bytes = info.vertex_counts[i] * VERTEX_SIZE;
         if (size_bytes == 0) continue;
 
-        vec3 face_center = CalculateFaceCenter(chunk_center, face_normal, 62.0);
-        vec3 cam_to_face = face_center - cam_pos.xyz;
-        bool facing = dot(cam_to_face, face_normal) < 0.0;
-        if (!facing && cam_chunk_y == info.pos.y) {
-            facing = true;
-        }
+        bool visible = !backface_cull_enabled || BackFaceCull(chunk_center, i, chunk_size, info.pos.xyz);
 
-        if (cull_cam == 0 || facing) {
+        if (!freeze_cull && visible) {
             uint insert_idx = atomicAdd(next_idx, 1);
             DrawIndexedIndirectCmd cmd;
             cmd.instance_count = 1;
@@ -96,7 +122,7 @@ void main() {
             #endif
             cmd.first_index = 0;
             UniformData uniform_data;
-            uniform_data.pos = ivec4(info.pos.xyz, i);
+            uniform_data.pos = ivec4(info.pos.xyz, info.chunk_mult << 3 | i);
             out_uniforms[insert_idx] = uniform_data;
             out_draw_cmds[insert_idx] = cmd;
         }

@@ -43,16 +43,13 @@ void Save(const std::string& path, const T& data) {
 struct Settings {
   int radius{30};
   void Load(const std::string& path) {
-    fmt::println("radius: {}", radius);
     loader::Load(path, *this);
     auto& sys = CVarSystem::Get();
-    fmt::println("radius: {}", radius);
     sys.CreateIntCVar("world.initial_load_radius", "initial load radius of world", radius, radius);
   }
   void Save(const std::string& path) {
     auto& sys = CVarSystem::Get();
     radius = *sys.GetIntCVar("world.initial_load_radius");
-    fmt::println("radius: {}", radius);
     loader::Save(path, *this);
   }
 } settings;
@@ -186,22 +183,6 @@ struct Stats {
     ImGui::Text("Meshes made total: %ld", tot_meshes_made);
     ImGui::Text("Avg mesh time %f us", tot_mesh_time / tot_meshes_made);
     ImGui::Text("Avg frame time %f ms / %f fps", avg * 1000, 1.f / avg);
-    // static ImPlotAxisFlags flags = ImPlotAxisFlags_NoTickLabels;
-    // static float t = 0;
-    // t += dt;
-    // frame_times.Add(t, frame_time);
-    // static float history = 10.f;
-    // ImGui::SliderFloat("History", &history, 1, 300, "%.1f s");
-    // if (ImPlot::BeginPlot("##Scrolling", ImVec2(-1, 150))) {
-    //   ImPlot::SetupAxes(nullptr, nullptr, flags, flags);
-    //   ImPlot::SetupAxisLimits(ImAxis_X1, t - history, t, ImGuiCond_Always);
-    //   ImPlot::SetupAxisLimits(ImAxis_Y1, 0, 1);
-    //   ImPlot::SetNextFillStyle(IMPLOT_AUTO_COL, 0.5f);
-    //   ImPlot::PlotShaded("Frame Times", &frame_times.data[0].x, &frame_times.data[0].y,
-    //                      frame_times.data.size(), -INFINITY, 0, frame_times.offset,
-    //                      sizeof(vec2));
-    //   ImPlot::EndPlot();
-    // }
     ImGui::Text("CPU Memory Usage %ld MB, Peak %ld MB", getCurrentRSS() / (1024ul * 1024),
                 getPeakRSS() / (1024ul * 1024));
     ImGui::Text("Real frame time %f ms / %f fps", frame_time, 1.f / frame_time);

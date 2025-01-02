@@ -8,6 +8,7 @@
 #include "Resource.hpp"
 #include "StagingBufferPool.hpp"
 #include "VoxelRenderer.hpp"
+#include "application/CVar.hpp"
 #include "application/Renderer.hpp"
 #include "imgui.h"
 #include "voxels/Common.hpp"
@@ -73,16 +74,18 @@ void ChunkMeshManager::UploadChunkMeshes(std::span<ChunkMeshUpload> uploads,
     auto size_bytes = tot_cnt * QuadSize;
     tot_upload_size_bytes += size_bytes;
     uint32_t offset;
+    // TODO: LOD/octree instead
+    static AutoCVarInt chunk_mult("chunks.chunk_mult", "chunk mult", 0);
+    constexpr int Mults[] = {1, 2, 4, 8, 16, 32, 64};
     ChunkDrawUniformData d{};
-    d.position = ivec4(pos, 0);
+    d.chunk_mult = Mults[chunk_mult.Get()];
+    d.position = ivec4(pos, Mults[chunk_mult.Get()] << 3);
+
     for (int i = 0; i < 6; i++) {
       d.vertex_counts[i] = counts[i];
     }
     ChunkAllocHandle handle = chunk_quad_buffer_.AddMesh(size_bytes, data, offset, d);
     handles[idx++] = handle;
-    // upload.handle = handle;
-    // upload.base_vertex = (offset / QuadSize) << 2;
-    // new_mesh_upload_batch.data.uploads.emplace_back();
   }
   if (!tot_upload_size_bytes) return;
   std::unique_ptr<tvk::AllocatedBuffer> buf =
@@ -94,7 +97,6 @@ void ChunkMeshManager::UploadChunkMeshes(std::span<ChunkMeshUpload> uploads,
     // TODO: don't do this, this makes a fence for every copy
     new_mesh_upload_batch.transfer =
         renderer_->TransferSubmitAsync([this, staging](VkCommandBuffer cmd) {
-          TracyVkZone(renderer_->graphics_queue_ctx_, cmd, "Upload chunk quads");
           chunk_quad_buffer_.ExecuteCopy(*staging, cmd);
           // transfer ownership to renderer?
         });
@@ -135,6 +137,7 @@ void ChunkMeshManager::Update() {
 
 void ChunkMeshManager::DrawImGuiStats() const {
   ImGui::Text("Draw cmds: %d", chunk_quad_buffer_.draw_cmds_count);
+  ImGui::Text("size %ld", sizeof(Allocation<ChunkDrawUniformData>));
 }
 
 void ChunkMeshManager::CopyDrawBuffers() {

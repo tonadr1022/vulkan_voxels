@@ -263,6 +263,7 @@ class CVarSystemImpl : public CVarSystem {
       for (auto& [category, params] : categorized_params) {
         if (ImGui::BeginMenu(category.c_str())) {
           edit_params(params);
+          ImGui::EndMenu();
         }
       }
     } else {

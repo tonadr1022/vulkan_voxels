@@ -44,8 +44,10 @@ const int flip_lookup[6] = int[6](1, -1, -1, 1, -1, 1);
 
 vec4 GetVertexPos() {
     UniformData u = uniforms[gl_BaseInstance];
-    ivec3 chunk_offset_pos = u.pos.xyz * 62;
-    uint face = u.pos.w;
+    uint face = u.pos.w & 7;
+    // int chunk_mult = 2;
+    int chunk_mult = int(u.pos.w >> 3);
+    ivec3 chunk_offset_pos = u.pos.xyz * 62 * chunk_mult;
     // get index within the quad
     int vertex_id = int(gl_VertexIndex & 3u);
     // get quad idx
@@ -55,7 +57,7 @@ vec4 GetVertexPos() {
     uint data2 = quads.data[quad_idx].data2;
 
     // unpack quad position in the chunk
-    ivec3 i_vertex_pos = ivec3(data1 & 63u, (data1 >> 6u) & 63u, (data1 >> 12u) & 63u);
+    ivec3 i_vertex_pos = ivec3(data1 & 63u, (data1 >> 6u) & 63u, (data1 >> 12u) & 63u) * chunk_mult;
 
     i_vertex_pos += chunk_offset_pos;
     // unpack width, height
@@ -68,11 +70,11 @@ vec4 GetVertexPos() {
     // offset the vertex in correct direction length
     #ifdef SINGLE_TRIANGLE_QUADS
     out_uv = uv_lookup[vertex_id];
-    i_vertex_pos[w_dir] += (w * w_mod * flip_lookup[face]) * 2;
-    i_vertex_pos[h_dir] += (h * h_mod) * 2;
+    i_vertex_pos[w_dir] += (w * w_mod * flip_lookup[face]) * 2 * chunk_mult;
+    i_vertex_pos[h_dir] += (h * h_mod) * 2 * chunk_mult;
     #else
-    i_vertex_pos[w_dir] += (w * w_mod * flip_lookup[face]);
-    i_vertex_pos[h_dir] += (h * h_mod);
+    i_vertex_pos[w_dir] += (w * w_mod * flip_lookup[face]) * chunk_mult;
+    i_vertex_pos[h_dir] += (h * h_mod) * chunk_mult;
     #endif
 
     out_pos = i_vertex_pos;

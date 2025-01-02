@@ -42,7 +42,8 @@ struct AutoCVar {
 };
 
 struct AutoCVarInt : AutoCVar<int32_t> {
-  AutoCVarInt(const char* name, const char* desc, int initial_value, CVarFlags flags);
+  AutoCVarInt(const char* name, const char* desc, int initial_value,
+              CVarFlags flags = CVarFlags::None);
   int32_t Get();
   int32_t* GetPtr();
   void Set(int32_t val);

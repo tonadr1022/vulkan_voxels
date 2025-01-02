@@ -35,11 +35,41 @@ VkPolygonMode GetPolygonMode() {
   return wireframe.Get() ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
 }
 
+inline AutoCVarFloat fov{"renderer.fov", "Field of View", 70.f, CVarFlags::EditFloatDrag};
 inline AutoCVarInt reverse_z{"renderer.reverse_z", "Reverse Depth Buffer", 1,
                              CVarFlags::EditCheckbox};
 }  // namespace
 void VoxelRenderer::Draw(bool draw_imgui) {
   ZoneScoped;
+  scene_data_ubo_cpu_.sun_color = vec4(scene_data_->sun_color, 0.0);
+  scene_data_ubo_cpu_.sun_dir = vec4(glm::normalize(scene_data_->sun_dir), 0.0);
+  scene_data_ubo_cpu_.view_pos_int = ivec4(glm::floor(scene_data_->cam_pos), 0.0);
+  scene_data_ubo_cpu_.cam_dir = vec4(scene_data_->cam_dir, 0.0);
+  scene_data_ubo_cpu_.ambient_color = vec4(scene_data_->ambient_color, 0.0);
+  vec3 intra_voxel_pos = scene_data_->cam_pos - glm::floor(scene_data_->cam_pos);
+  float aspect = static_cast<float>(draw_dims_.x) / static_cast<float>(draw_dims_.y);
+  if (draw_dims_.x == 0 && draw_dims_.y == 0) {
+    aspect = 1.f;
+  }
+
+  float near = 0.1f;
+  float far = z_far.Get();
+  float fov_rad = glm::radians(fov.GetFloat());
+  glm::mat4 non_reversed_proj = glm::perspective(fov_rad, aspect, near, far);
+  non_reversed_proj[1][1] *= -1;
+  if (reverse_z.Get()) {
+    std::swap(near, far);
+  }
+  glm::mat4 proj = glm::perspective(fov_rad, aspect, near, far);
+  proj[1][1] *= -1;
+  scene_data_ubo_cpu_.proj = proj;
+  glm::mat4 view =
+      glm::lookAt(intra_voxel_pos, intra_voxel_pos + scene_data_->cam_dir, vec3(0, 1, 0));
+  scene_data_ubo_cpu_.world_center_view = view;
+
+  scene_data_ubo_cpu_.world_center_viewproj = proj * view;
+  frustum_cpu_.SetData(non_reversed_proj * view);
+
   ChunkMeshManager::Get().CopyDrawBuffers();
 
   if (!UpdateSwapchainAndCheckIfReady()) {
@@ -67,32 +97,9 @@ void VoxelRenderer::Draw(bool draw_imgui) {
   VK_CHECK(vkResetFences(device_, 1, &GetCurrentFrame().render_fence));
   VK_CHECK(vkResetCommandBuffer(GetCurrentFrame().main_command_buffer, 0));
 
-  scene_data_ubo_cpu.sun_color = vec4(scene_data_->sun_color, 0.0);
-  scene_data_ubo_cpu.sun_dir = vec4(glm::normalize(scene_data_->sun_dir), 0.0);
-  scene_data_ubo_cpu.view_pos_int = ivec4(glm::floor(scene_data_->cam_pos), 0.0);
-  scene_data_ubo_cpu.cam_dir = vec4(scene_data_->cam_dir, 0.0);
-  scene_data_ubo_cpu.ambient_color = vec4(scene_data_->ambient_color, 0.0);
-  vec3 intra_voxel_pos = scene_data_->cam_pos - glm::floor(scene_data_->cam_pos);
-  float aspect = static_cast<float>(draw_dims_.x) / static_cast<float>(draw_dims_.y);
-  if (draw_dims_.x == 0 && draw_dims_.y == 0) {
-    aspect = 1.f;
-  }
-
-  float near = 0.1f;
-  float far = z_far.Get();
-  if (reverse_z.Get()) {
-    std::swap(near, far);
-  }
-  glm::mat4 proj = glm::perspective(70.f, aspect, near, far);
-  proj[1][1] *= -1;
-  scene_data_ubo_cpu.proj = proj;
-  scene_data_ubo_cpu.world_center_view =
-      glm::lookAt(intra_voxel_pos, intra_voxel_pos + scene_data_->cam_dir, vec3(0, 1, 0));
-  scene_data_ubo_cpu.world_center_viewproj = proj * scene_data_ubo_cpu.world_center_view;
-
   auto* scene_uniform_data =
       static_cast<SceneDataUBO*>(GetExtendedFrameData().scene_data_ubo_buffer.data);
-  *scene_uniform_data = scene_data_ubo_cpu;
+  *scene_uniform_data = scene_data_ubo_cpu_;
   ImagePipelineState init_img_state{VK_IMAGE_LAYOUT_UNDEFINED, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
                                     0};
   tvk::ImageAndState draw_img_state(
@@ -327,6 +334,15 @@ void VoxelRenderer::UpdateSceneDataUBO() {}
 
 void VoxelRenderer::PrepareAndCullChunks(VkCommandBuffer cmd) {
   ZoneScoped;
+  // TODO:
+  // https://github.com/SaschaWillems/Vulkan/blob/master/examples/computecullandlod/computecullandlod.cpp
+  static AutoCVarInt frustum_cull("chunks.frustum_cull", "GPU Frustum Cull Enabled", 1,
+                                  CVarFlags::EditCheckbox);
+  static AutoCVarInt backface_cull("chunks.back_face_cull",
+                                   "Cull entire chunk faces based on camera view", 1,
+                                   CVarFlags::EditCheckbox);
+  static AutoCVarInt freeze_cull("chunks.freeze_cull", "Pause Culling", 0, CVarFlags::EditCheckbox);
+
   auto& chunk_vert_pool = ChunkMeshManager::Get().chunk_quad_buffer_;
   {
     TracyVkZone(graphics_queue_ctx_, cmd, "CopyDrawsToGPU");
@@ -360,7 +376,9 @@ void VoxelRenderer::PrepareAndCullChunks(VkCommandBuffer cmd) {
     };
     PipelineBarrier(cmd, 0, buffer_barriers, {});
   }
-  vkCmdFillBuffer(cmd, chunk_vert_pool.draw_count_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
+  if (!freeze_cull.Get()) {
+    vkCmdFillBuffer(cmd, chunk_vert_pool.draw_count_buffer.buffer, 0, VK_WHOLE_SIZE, 0);
+  }
 
   auto draw_info_info = chunk_vert_pool.draw_infos_gpu_buf.GetInfo();
   auto draw_cmds_info = chunk_vert_pool.draw_cmd_gpu_buf.GetInfo();
@@ -384,15 +402,28 @@ void VoxelRenderer::PrepareAndCullChunks(VkCommandBuffer cmd) {
   PipelineBarrier(cmd, 0, buffer_barriers, {});
 
   struct PC {
-    mat4 cam_view;
-    vec4 cam_dir;
     vec4 cam_pos;
-    uint cull_cam;
+    vec4 plane0;
+    vec4 plane1;
+    vec4 plane2;
+    vec4 plane3;
+    vec4 plane4;
+    vec4 plane5;
+    uvec4 bits;
   };
-  static AutoCVarInt cull_cam("chunks.cull_cam", "Cull entire chunk faces based on camera view", 1,
-                              CVarFlags::EditCheckbox);
-  PC pc{scene_data_ubo_cpu.world_center_view, vec4(scene_data_->cam_dir, 1.0),
-        vec4(scene_data_->cam_pos, 1.0), static_cast<bool>(cull_cam.Get())};
+  auto& frustum = frustum_cpu_.data;
+  PC pc{vec4(scene_data_->cam_pos, 1.0),
+        frustum[0],
+        frustum[1],
+        frustum[2],
+        frustum[3],
+        frustum[4],
+        frustum[5],
+        uvec4{0}};
+  pc.bits.x |= (backface_cull.Get() != 0) << 0;
+  pc.bits.x |= (frustum_cull.Get() != 0) << 1;
+  pc.bits.x |= (freeze_cull.Get() != 0) << 2;
+
   vkCmdPushConstants(cmd, chunk_cull_pipeline_.pipeline->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
                      sizeof(PC), &pc);
 
@@ -406,6 +437,7 @@ void VoxelRenderer::PrepareAndCullChunks(VkCommandBuffer cmd) {
   chunk_cull_pipeline_.BindCompute(cmd);
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                           chunk_cull_pipeline_.pipeline->layout, 0, 1, &s, 0, nullptr);
+
   vkCmdDispatch(cmd, (chunk_vert_pool.draw_cmds_count + 63) / 64, 1, 1);
   {
     VkBufferMemoryBarrier2 buffer_barriers[] = {

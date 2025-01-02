@@ -10,7 +10,7 @@ struct NoneT {};
 
 template <typename UT = NoneT>
 struct Allocation {
-  uint64_t handle{0};
+  uint32_t handle{0};
   uint32_t offset{0};
   uint32_t size_bytes{0};
   UT user_data;
@@ -20,7 +20,7 @@ struct Allocation {
 template <>
 struct Allocation<void> {
   Allocation() = default;
-  uint64_t handle{0};
+  uint32_t handle{0};
   uint32_t offset{0};
   uint32_t size_bytes{0};
 };
@@ -91,7 +91,7 @@ class DynamicBuffer {
 
     // create new allocation
     Allocation<UserT> new_alloc{user_data};
-    new_alloc.handle = next_handle_++;
+    new_alloc.handle = GetHandle();
     new_alloc.offset = smallest_free_alloc->offset;
     new_alloc.size_bytes = size_bytes;
 
@@ -126,6 +126,7 @@ class DynamicBuffer {
     it->handle = 0;
     Coalesce(it);
 
+    free_handles_.emplace_back(handle);
     --num_active_allocs_;
   }
 
@@ -133,9 +134,18 @@ class DynamicBuffer {
 
  private:
   uint32_t alignment_{0};
-  uint64_t next_handle_{1};
+  uint32_t next_handle_{1};
   uint32_t num_active_allocs_{0};
 
+  std::vector<uint32_t> free_handles_;
+  uint32_t GetHandle() {
+    if (!free_handles_.empty()) {
+      auto h = free_handles_.back();
+      free_handles_.pop_back();
+      return h;
+    }
+    return next_handle_++;
+  }
   std::vector<Allocation<UserT>> allocs_;
 
   using Iterator = decltype(allocs_.begin());
