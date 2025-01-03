@@ -16,8 +16,8 @@ AutoCVarInt terrain_gen_chunks_y("world.terrain_gen_chunks_y", "Num chunks Y", 1
 AutoCVarFloat freq("world.terrain_freq", "Freq", 0.001);
 }  // namespace
 void VoxelWorld::Init() {
-  max_terrain_tasks_ = 100;
-  max_mesh_tasks_ = 100;
+  max_terrain_tasks_ = 200;
+  max_mesh_tasks_ = 200;
 
   // TODO: refactor the counts here
   mesh_alg_pool_.Init(max_mesh_tasks_);
@@ -173,13 +173,14 @@ TerrainGenResponse VoxelWorld::ProcessTerrainTask(TerrainGenTask& task) {
   // HeightMapFloats<i8vec3{PCS}> white_noise_floats;
   auto* chunk = chunk_pool_.Get(task.chunk_handle);
   noise.FillWhiteNoise<i8vec3{PCS}>(white_noise_floats, chunk->pos * CS);
-  static AutoCVarInt chunk_mult("chunks.chunk_mult", "chunk mult", 1);
+  static AutoCVarInt chunk_mult("chunks.chunk_mult", "chunk mult", 2);
   // constexpr int Mults[] = {1, 2, 4, 8, 16, 32, 64};
   // fmt::println("get {}", chunk_mult.Get());
   auto m = chunk_mult.Get();
   EASSERT(m);
-  noise.FillNoise2D<i8vec3{PCS}>(height_map_floats, ivec2{chunk->pos.x, chunk->pos.z} * CS / m);
-  gen::NoiseToHeights(height_map_floats, heights, {0, (terrain_gen_chunks_y.Get() * CS / m)});
+  noise.FillNoise2D(height_map_floats, ivec2{chunk->pos.x, chunk->pos.z} * CS, uvec2{PCS}, m);
+  gen::NoiseToHeights(height_map_floats, heights,
+                      {0, (((terrain_gen_chunks_y.Get() * CS / m) - 1))});
   gen::FillChunk(chunk->grid, chunk->pos * CS, heights, [](int, int, int) { return 128; });
   // gen::NoiseToHeights(height_map_floats, heights, {0, terrain_gen_chunks_y.Get() * CS});
   // int i = 0;

@@ -4,6 +4,7 @@
 
 #include <tracy/TracyVulkan.hpp>
 
+#include "Error.hpp"
 #include "GPUBufferAllocator.hpp"
 #include "Resource.hpp"
 #include "VoxelRenderer.hpp"
@@ -13,7 +14,19 @@
 #include "voxels/Common.hpp"
 
 #define SINGLE_TRIANGLE_QUADS
-void ChunkMeshManager::Cleanup() {}
+void ChunkMeshManager::Cleanup() {
+  if (transfers_.size()) {
+    std::vector<VkFence> fences;
+    fences.reserve(transfers_.size());
+    for (const auto& t : transfers_) {
+      fences.emplace_back(t.fence);
+    }
+    VK_CHECK(vkWaitForFences(renderer_->device_, fences.size(), fences.data(), true, UINT64_MAX));
+    for (const auto& t : transfers_) {
+      renderer_->ReturnFence(t.fence);
+    }
+  }
+}
 
 void ChunkMeshManager::Init(VoxelRenderer* renderer) {
   renderer_ = renderer;

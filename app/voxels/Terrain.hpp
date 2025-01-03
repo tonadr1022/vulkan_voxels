@@ -97,6 +97,9 @@ struct FBMNoise {
     white_noise->GenUniformGrid3D(out.data(), start.x, start.y, start.z, Dims.x, Dims.y, Dims.z,
                                   frequency_, seed_);
   }
+  void FillNoise2D(HeightMapFloats<i8vec3{PCS}>& out, uvec2 start, uvec2 dims, float scale) {
+    fbm->GenUniformGrid2D(out.data(), start.x, start.y, dims.x, dims.y, frequency_ * scale, seed_);
+  }
   template <i8vec3 Dims>
   void FillNoise2D(HeightMapFloats<Dims>& out, uvec2 start) {
     fbm->GenUniformGrid2D(out.data(), start.x, start.y, Dims.x, Dims.z, frequency_, seed_);
