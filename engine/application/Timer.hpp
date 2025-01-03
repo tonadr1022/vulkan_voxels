@@ -5,7 +5,7 @@
 class Timer {
  public:
   Timer() { Start(); }
-  ~Timer() { ElapsedMicro(); }
+  ~Timer() = default;
 
   void Start() { start_time_ = std::chrono::high_resolution_clock::now(); };
 
@@ -21,6 +21,7 @@ class Timer {
   }
 
   void Print() { fmt::println("ElapsedMS: {}", ElapsedMS()); }
+  void PrintMicro() { fmt::println("ElapsedMicro: {}", ElapsedMicro()); }
   void Reset(std::string_view msg) {
     Print(msg);
     Reset();
@@ -31,4 +32,9 @@ class Timer {
  private:
   uint64_t start_, end_;
   std::chrono::time_point<std::chrono::high_resolution_clock> start_time_;
+};
+
+class PrintTimerMicro : public Timer {
+ public:
+  ~PrintTimerMicro() { PrintMicro(); }
 };

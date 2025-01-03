@@ -16,6 +16,9 @@ template <i8vec3 Len>
 using HeightMapFloats = std::array<float, static_cast<std::size_t>(Len.x* Len.z)>;
 
 template <i8vec3 Len>
+using FloatArray3D = std::array<float, static_cast<std::size_t>(Len.x* Len.z* Len.y)>;
+
+template <i8vec3 Len>
 using HeightMapGrid = std::array<int, static_cast<std::size_t>(Len.x* Len.z)>;
 
 using ChunkPaddedHeightMapFloats = HeightMapFloats<i8vec3{PCS}>;

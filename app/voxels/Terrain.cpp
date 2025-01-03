@@ -14,14 +14,14 @@ void FBMNoise::Init(int seed, float frequency, int octaves) {
 
 void FBMNoise::InitNoise() {
   auto fn_simplex = FastNoise::New<FastNoise::Simplex>();
-  fbm_ = FastNoise::New<FastNoise::FractalFBm>();
-  fbm_->SetSource(fn_simplex);
-  fbm_->SetOctaveCount(octaves_);
-  white_noise_ = FastNoise::New<FastNoise::White>();
+  fbm = FastNoise::New<FastNoise::FractalFBm>();
+  fbm->SetSource(fn_simplex);
+  fbm->SetOctaveCount(octaves_);
+  white_noise = FastNoise::New<FastNoise::White>();
 }
 
 void FBMNoise::GetNoise(std::span<float> out, uvec2 start, uvec2 size) {
-  fbm_->GenUniformGrid2D(out.data(), start.x, start.y, size.x, size.y, frequency_, seed_);
+  fbm->GenUniformGrid2D(out.data(), start.x, start.y, size.x, size.y, frequency_, seed_);
 }
 
 void NoiseToHeights(std::span<float> noise, std::span<int> heights, uvec2 range) {
@@ -57,7 +57,7 @@ void FillSolid(PaddedChunkGrid3D& grid, int value) {
 }
 
 void FBMNoise::GetWhiteNoise(std::span<float> out, uvec2 start, uvec2 size) {
-  white_noise_->GenUniformGrid2D(out.data(), start.x, start.y, size.x, size.y, white_freq_, seed_);
+  white_noise->GenUniformGrid2D(out.data(), start.x, start.y, size.x, size.y, white_freq_, seed_);
 }
 
 }  // namespace gen

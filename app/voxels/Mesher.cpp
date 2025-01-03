@@ -36,7 +36,8 @@ void GenerateMesh(std::span<uint8_t> voxels, MeshAlgData& alg_data, MesherOutput
   ZoneScoped;
   Timer t;
   mesh_data.vertex_cnt = 0;
-  alg_data.max_vertices = mesh_data.vertices.size();
+  mesh_data.vertices.clear();
+  alg_data.max_vertices = 0;
   const auto& opaque_mask = alg_data.mask->mask;
   auto& forward_merged = alg_data.forward_merged;
   auto& right_merged = alg_data.right_merged;
@@ -213,6 +214,6 @@ void GenerateMesh(std::span<uint8_t> voxels, MeshAlgData& alg_data, MesherOutput
     alg_data.face_vertex_lengths[face] = face_vertex_length;
   }
 
-  mesh_data.vertex_cnt = i_vertex + 1;
+  mesh_data.vertex_cnt = mesh_data.vertices.size();
   mesh_data.mesh_time = t.ElapsedMicro();
 }

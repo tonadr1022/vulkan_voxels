@@ -37,6 +37,8 @@ struct PtrObjPool {
     free_list.emplace_back(handle);
   }
 
+  size_t Size() { return allocs; }
+
   void Clear() {
     data.clear();
     data.resize(free_list.size());
@@ -93,54 +95,84 @@ struct FixedSizePtrPool {
 template <typename T>
 struct FixedSizePool {
   void Init(uint32_t size) {
+    capacity_ = size;
     data.resize(size, {});
-    free_list.resize(size);
+    free_list_.resize(size);
     InitInternal();
   }
+  size_t Size() { return size_; }
+  size_t Capacity() { return capacity_; }
 
   T* Alloc() {
-    if (free_head == -1) {
+    if (free_head_ == -1) {
       return nullptr;
     }
-    uint32_t curr = free_head;
-    free_head = free_list[free_head];
-    allocs++;
+    uint32_t curr = free_head_;
+    free_head_ = free_list_[free_head_];
+    size_++;
     return &data[curr];
   }
 
   void Free(T* obj) {
     assert(obj >= data.data() && obj < data.data() + data.size());
     uint32_t idx = obj - data.data();
-    free_list[idx] = free_head;
-    free_head = idx;
-    allocs--;
+    free_list_[idx] = free_head_;
+    free_head_ = idx;
+    size_--;
   }
 
   void Clear() {
-    allocs = {};
+    size_ = {};
     data.clear();
-    data.resize(free_list.size(), {});
+    data.resize(free_list_.size(), {});
     InitInternal();
   }
 
   void ClearNoDealloc() {
-    allocs = {};
+    size_ = {};
     InitInternal();
   }
 
-  size_t allocs{};
-  int32_t free_head = -1;
-  std::vector<uint32_t> free_list;
   std::vector<T> data;
 
  private:
+  size_t size_{};
+  size_t capacity_;
+  int32_t free_head_ = -1;
+  std::vector<uint32_t> free_list_;
+
   void InitInternal() {
-    for (size_t i = 0; i < free_list.size(); i++) {
-      free_list[i] = i + 1;
+    for (size_t i = 0; i < free_list_.size(); i++) {
+      free_list_[i] = i + 1;
     }
     // end of free list
-    free_list[free_list.size() - 1] = -1;
+    free_list_[free_list_.size() - 1] = -1;
     // first free slot
-    free_head = 0;
+    free_head_ = 0;
   }
 };
+
+// template <typename T>
+// struct UniversalPool {
+//   UniversalPool(uint32_t cnt, bool owns_memory, uint32_t num_blocks = 10000)
+//       : block_capacity_(num_blocks), owns_memory_(owns_memory) {
+//     if (owns_memory) {
+//       memstart_ = new T[cnt];
+//     }
+//   }
+//   struct Block {
+//     uint32_t position;
+//     uint32_t size;
+//   };
+//   uint32_t Alloc() {}
+//
+//   void Free(uint32_t handle) {}
+//
+//   T* Get(uint32_t handle) { return memstart_ + handle; }
+//   T* Start() { return memstart_; }
+//
+//  private:
+//   T* memstart_;
+//   uint32_t block_capacity_;
+//   bool owns_memory_;
+// };

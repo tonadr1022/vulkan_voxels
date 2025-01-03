@@ -13,6 +13,7 @@ struct Allocation {
   uint32_t handle{0};
   uint32_t offset{0};
   uint32_t size_bytes{0};
+  uint32_t pad;
   UT user_data;
   explicit Allocation(UT data = {}) : user_data(data) {}
 };
@@ -23,6 +24,7 @@ struct Allocation<void> {
   uint32_t handle{0};
   uint32_t offset{0};
   uint32_t size_bytes{0};
+  uint32_t pad;
 };
 /*
  * glBuffer allocator. Can allocate and free blocks. The Allocation struct contains metadata for

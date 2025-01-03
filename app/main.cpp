@@ -1,3 +1,5 @@
+#include <chrono>
+#include <condition_variable>
 #include <cstdlib>
 #include <fstream>
 #include <thread>
@@ -42,7 +44,7 @@ void Save(const std::string& path, const T& data) {
 
 struct Settings {
   int radius{30};
-  void Load(const std::string& path) {
+  void Load([[maybe_unused]] const std::string& path) {
     loader::Load(path, *this);
     auto& sys = CVarSystem::Get();
     sys.CreateIntCVar("world.initial_load_radius", "initial load radius of world", radius, radius);
@@ -55,13 +57,17 @@ struct Settings {
 } settings;
 
 std::unique_ptr<VoxelWorld> world;
+void RestartWorld() {
+  world->Reset();
+  world->GenerateWorld(*CVarSystem::Get().GetIntCVar("world.initial_load_radius"));
+}
 void InitWorld() {
   if (world) {
     world->Shutdown();
   }
   world = std::make_unique<VoxelWorld>();
   world->Init();
-  world->GenerateWorld(settings.radius);
+  world->GenerateWorld(*CVarSystem::Get().GetIntCVar("world.initial_load_radius"));
 }
 VoxelRenderer renderer;
 Window window;
@@ -76,6 +82,8 @@ vec3 sun_dir{0, -2, -1};
 vec3 ambient_color{0.1, 0.1, 0.1};
 
 AutoCVarFloat move_speed("camera.speed", "movement speed", 400.f, CVarFlags::EditFloatDrag);
+AutoCVarFloat default_move_speed("camera.default_speed", "default movement speed", 200.f,
+                                 CVarFlags::EditFloatDrag);
 
 float move_speed_vel{};
 float move_speed_change_accel{0.2};
@@ -99,7 +107,10 @@ void UpdateCamera(double dt) {
   if (Input::IsKeyDown(SDLK_H) || Input::IsKeyDown(SDLK_F)) {
     move.y--;
   }
-  if (Input::IsKeyDown(SDLK_EQUALS)) {
+  if (Input::IsKeyDown(SDLK_EQUALS) && Input::IsKeyDown(SDLK_LSHIFT)) {
+    move_speed.Set(default_move_speed.Get());
+    move_speed_vel = 0;
+  } else if (Input::IsKeyDown(SDLK_EQUALS)) {
     move_speed_vel += move_speed_change_accel;
   } else if (Input::IsKeyDown(SDLK_MINUS)) {
     move_speed_vel -= move_speed_change_accel;
@@ -150,8 +161,7 @@ void OnEvent(const SDL_Event& e) {
       renderer.Screenshot(path);
       fmt::println("Saved screenshot to {}", path);
     } else if (sym == SDLK_F10) {
-      world->Reset();
-      world->GenerateWorld(settings.radius);
+      RestartWorld();
     }
   } else if (e.type == SDL_EVENT_KEY_UP) {
     Input::SetKeyPressed(e.key.key, false);
@@ -223,8 +233,13 @@ void DrawImGui(double dt) {
 
 void Update(double dt) {
   ZoneScoped;
-  UpdateCamera(dt);
-  world->Update();
+  static double t = 0;
+  t += dt;
+  if (t > (1 / 120.f)) {
+    UpdateCamera(t);
+    t = 0;
+  }
+  // world->Update();
 }
 
 using ChunkVertexVector = std::vector<uint64_t>;
@@ -250,6 +265,17 @@ int main() {
 
   Timer timer;
   double last_time = timer.ElapsedMS();
+
+  std::condition_variable cv;
+  static AutoCVarInt world_update_sleep_time("world.update_sleep_time",
+                                             "World Update Sleep Time MS", 1);
+  auto f = std::thread([]() {
+    while (!should_quit) {
+      world->Update();
+      std::this_thread::sleep_for(std::chrono::milliseconds(world_update_sleep_time.Get()));
+    }
+  });
+
   while (!should_quit) {
     ZoneScopedN("Frame");
     double time = timer.ElapsedMS();
@@ -300,6 +326,7 @@ int main() {
     // }
     stats.frame_time = dt;
   }
+  f.join();
   renderer.Cleanup();
   settings.Save(settings_path);
 }

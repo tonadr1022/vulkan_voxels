@@ -61,20 +61,21 @@ void FillChunk(Grid3D<Len>& grid, std::span<int> heights, int value) {
 
 void FillSolid(PaddedChunkGrid3D& grid, int value);
 
-void FillChunk(PaddedChunkGrid3D& grid, std::span<int> heights, int value);
+// void FillChunk(PaddedChunkGrid3D& grid, std::span<int> heights, int value);
 
 template <typename Func>
-void FillChunk(PaddedChunkGrid3D& grid, std::span<int> heights, Func&& func) {
+void FillChunk(PaddedChunkGrid3D& grid, [[maybe_unused]] ivec3 chunk_start, std::span<int> heights,
+               Func&& func) {
   ZoneScoped;
   static_assert(std::is_invocable_v<Func, int, int, int> && "Func not invocable");
   for (int y = 0; y < PaddedChunkGrid3D::Dims.x; y++) {
     for (int x = 0; x < PaddedChunkGrid3D::Dims.y; x++) {
       for (int z = 0; z < PaddedChunkGrid3D::Dims.z; z++) {
-        int fill = 0;
-        if (y < heights[(PaddedChunkGrid3D::Dims.x * x) + z]) {
-          fill = func(x, y, z);
+        // int fill = 0;
+        if (y < heights[(PaddedChunkGrid3D::Dims.x * x) + z] - chunk_start.y) {
+          // fill = func(x, y, z);
+          grid.Set(x, y, z, func(x, y, z));
         }
-        grid.Set(x, y, z, fill);
       }
     }
   }
@@ -89,12 +90,20 @@ struct FBMNoise {
 
   template <i8vec3 Dims>
   void FillWhiteNoise(HeightMapFloats<Dims>& out, uvec2 start) {
-    white_noise_->GenUniformGrid2D(out.data(), start.x, start.y, Dims.x, Dims.z, frequency_, seed_);
+    white_noise->GenUniformGrid2D(out.data(), start.x, start.y, Dims.x, Dims.z, frequency_, seed_);
   }
   template <i8vec3 Dims>
-  void FillNoise(HeightMapFloats<Dims>& out, uvec2 start) {
-    fbm_->GenUniformGrid2D(out.data(), start.x, start.y, Dims.x, Dims.z, frequency_, seed_);
+  void FillWhiteNoise(FloatArray3D<Dims>& out, uvec3 start) {
+    white_noise->GenUniformGrid3D(out.data(), start.x, start.y, start.z, Dims.x, Dims.y, Dims.z,
+                                  frequency_, seed_);
   }
+  template <i8vec3 Dims>
+  void FillNoise2D(HeightMapFloats<Dims>& out, uvec2 start) {
+    fbm->GenUniformGrid2D(out.data(), start.x, start.y, Dims.x, Dims.z, frequency_, seed_);
+  }
+
+  FastNoise::SmartNode<FastNoise::FractalFBm> fbm;
+  FastNoise::SmartNode<FastNoise::White> white_noise;
 
  private:
   void InitNoise();
@@ -102,8 +111,6 @@ struct FBMNoise {
   float frequency_;
   int octaves_;
   int seed_;
-  FastNoise::SmartNode<FastNoise::FractalFBm> fbm_;
-  FastNoise::SmartNode<FastNoise::White> white_noise_;
 };
 
 }  // namespace gen

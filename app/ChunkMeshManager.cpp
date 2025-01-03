@@ -81,11 +81,9 @@ void ChunkMeshManager::UploadChunkMeshes(std::span<ChunkMeshUpload> uploads,
     tot_upload_size_bytes += size_bytes;
     uint32_t offset;
     // TODO: LOD/octree instead
-    static AutoCVarInt chunk_mult("chunks.chunk_mult", "chunk mult", 0);
-    constexpr int Mults[] = {1, 2, 4, 8, 16, 32, 64};
     ChunkDrawUniformData d{};
-    d.chunk_mult = Mults[chunk_mult.Get()];
-    d.position = ivec4(pos, Mults[chunk_mult.Get()] << 3);
+    int mult = *CVarSystem::Get().GetIntCVar("chunks.chunk_mult");
+    d.position = ivec4(pos, mult << 3);
 
     for (int i = 0; i < 6; i++) {
       d.vertex_counts[i] = counts[i];

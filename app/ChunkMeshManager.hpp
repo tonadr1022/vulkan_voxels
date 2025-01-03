@@ -17,7 +17,6 @@ struct ChunkUniformData {
 };
 
 struct ChunkDrawUniformData {
-  uint chunk_mult;
   ivec4 position;
   uint vertex_counts[8];
 };

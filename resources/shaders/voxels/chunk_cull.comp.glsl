@@ -14,7 +14,7 @@ struct DrawInfo {
     uint handle;
     uint vertex_offset;
     uint size_bytes;
-    uint chunk_mult;
+    uint pad;
     ivec4 pos;
     uint vertex_counts[8];
 };
@@ -86,7 +86,8 @@ void main() {
     DrawInfo info = in_draw_info[g_id];
     if (info.handle == 0) return;
 
-    float chunk_size = info.chunk_mult * 62.0;
+    int chunk_mult = info.pos.w >> 3;
+    float chunk_size = chunk_mult * 62.0;
     float half_chunk_size = chunk_size * 0.5;
     vec3 chunk_center = vec3(info.pos.xyz) * chunk_size + vec3(half_chunk_size);
 
@@ -97,9 +98,8 @@ void main() {
     const bool backface_cull_enabled = !freeze_cull && bool(bits.x & 0x1);
     const bool frustum_cull_enabled = !freeze_cull && bool(bits.x & 0x2);
     if (frustum_cull_enabled) {
-        const float radius = sqrt(half_chunk_size * half_chunk_size + half_chunk_size * half_chunk_size);
         vec4 pos = vec4(chunk_center - cam_pos.xyz, 1.0);
-        if (!CullFrustum(pos, radius)) return;
+        if (!CullFrustum(pos, length(vec3(half_chunk_size)))) return;
     }
 
     for (int i = 0; i < 6; i++) {
@@ -122,7 +122,7 @@ void main() {
             #endif
             cmd.first_index = 0;
             UniformData uniform_data;
-            uniform_data.pos = ivec4(info.pos.xyz, info.chunk_mult << 3 | i);
+            uniform_data.pos = ivec4(info.pos.xyz, (chunk_mult << 3) | i);
             out_uniforms[insert_idx] = uniform_data;
             out_draw_cmds[insert_idx] = cmd;
         }

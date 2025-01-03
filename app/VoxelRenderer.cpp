@@ -332,7 +332,7 @@ void VoxelRenderer::PrepareAndCullChunks(VkCommandBuffer cmd) {
   static AutoCVarInt frustum_cull("chunks.frustum_cull", "GPU Frustum Cull Enabled", 1,
                                   CVarFlags::EditCheckbox);
   static AutoCVarInt backface_cull("chunks.back_face_cull",
-                                   "Cull entire chunk faces based on camera view", 1,
+                                   "Cull entire chunk faces based on camera view", 0,
                                    CVarFlags::EditCheckbox);
   static AutoCVarInt freeze_cull("chunks.freeze_cull", "Pause Culling", 0, CVarFlags::EditCheckbox);
 

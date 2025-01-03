@@ -15,6 +15,7 @@ voxels/Mesher.cpp
 voxels/Chunk.cpp
 voxels/VoxelWorld.cpp
 voxels/Frustum.cpp
+voxels/Octree.cpp
 )
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE WORKING_DIR="${CMAKE_SOURCE_DIR}")
