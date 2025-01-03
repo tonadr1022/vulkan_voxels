@@ -4,10 +4,8 @@ template <typename T>
 struct PtrObjPool {
   void Init(uint32_t size) {
     data.resize(size);
-    free_list.reserve(size);
-    for (uint32_t i = 0; i < size; i++) {
-      free_list.emplace_back(i);
-    }
+    free_list.resize(size);
+    InitInternal();
   }
 
   uint32_t Alloc() {
@@ -39,9 +37,24 @@ struct PtrObjPool {
     free_list.emplace_back(handle);
   }
 
-  size_t allocs;
+  void Clear() {
+    data.clear();
+    data.resize(free_list.size());
+    InitInternal();
+  }
+  void ClearNoDealloc() { InitInternal(); }
+
+  size_t allocs{};
   std::vector<std::unique_ptr<T>> data;
   std::vector<uint32_t> free_list;
+
+ private:
+  void InitInternal() {
+    allocs = {};
+    for (uint32_t i = 0; i < free_list.size(); i++) {
+      free_list[i] = i;
+    }
+  }
 };
 
 template <typename T>
@@ -82,13 +95,7 @@ struct FixedSizePool {
   void Init(uint32_t size) {
     data.resize(size, {});
     free_list.resize(size);
-    for (uint32_t i = 0; i < size; i++) {
-      free_list[i] = i + 1;
-    }
-    // end of free list
-    free_list[size - 1] = -1;
-    // first free slot
-    free_head = 0;
+    InitInternal();
   }
 
   T* Alloc() {
@@ -109,8 +116,31 @@ struct FixedSizePool {
     allocs--;
   }
 
+  void Clear() {
+    allocs = {};
+    data.clear();
+    data.resize(free_list.size(), {});
+    InitInternal();
+  }
+
+  void ClearNoDealloc() {
+    allocs = {};
+    InitInternal();
+  }
+
   size_t allocs{};
   int32_t free_head = -1;
   std::vector<uint32_t> free_list;
   std::vector<T> data;
+
+ private:
+  void InitInternal() {
+    for (size_t i = 0; i < free_list.size(); i++) {
+      free_list[i] = i + 1;
+    }
+    // end of free list
+    free_list[free_list.size() - 1] = -1;
+    // first free slot
+    free_head = 0;
+  }
 };

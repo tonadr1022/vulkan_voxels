@@ -63,6 +63,12 @@ void ChunkMeshManager::Init(VoxelRenderer* renderer) {
   renderer_->allocator_.DestroyBuffer(staging);
 }
 
+void ChunkMeshManager::FreeMeshes(std::span<ChunkAllocHandle> handles) {
+  for (auto& h : handles) {
+    chunk_quad_buffer_.FreeMesh(h);
+  }
+}
+
 void ChunkMeshManager::UploadChunkMeshes(std::span<ChunkMeshUpload> uploads,
                                          std::span<ChunkAllocHandle> handles) {
   ZoneScoped;
@@ -88,6 +94,7 @@ void ChunkMeshManager::UploadChunkMeshes(std::span<ChunkMeshUpload> uploads,
     handles[idx++] = handle;
   }
   if (!tot_upload_size_bytes) return;
+  // TODO: copy to staging buffer on another thread
   std::unique_ptr<tvk::AllocatedBuffer> buf =
       renderer_->staging_buffer_pool_.GetBuffer(tot_upload_size_bytes);
   chunk_quad_buffer_.CopyToStaging(*buf);
@@ -136,7 +143,7 @@ void ChunkMeshManager::Update() {
 }
 
 void ChunkMeshManager::DrawImGuiStats() const {
-  ImGui::Text("Draw cmds: %d", chunk_quad_buffer_.draw_cmds_count);
+  ImGui::Text("Draw cmds: %ld", chunk_quad_buffer_.draw_cmds_count);
   ImGui::Text("size %ld", sizeof(Allocation<ChunkDrawUniformData>));
 }
 

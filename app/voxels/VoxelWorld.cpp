@@ -23,6 +23,7 @@ void VoxelWorld::Init() {
     // TODO: config
     n.Init(seed_, 0.005, 4);
   }
+  initalized_ = true;
 }
 
 void VoxelWorld::GenerateWorld(int radius) {
@@ -32,23 +33,24 @@ void VoxelWorld::GenerateWorld(int radius) {
     for (iter.z = -radius; iter.z <= radius; iter.z++) {
       // TODO: use queue?
       to_gen_terrain_tasks_.emplace_back(iter);
-      world_gen_chunk_payload++;
+      world_gen_chunk_payload_++;
     }
   }
-  t.Reset();
+  world_start_timer_.Reset();
 }
 
 void VoxelWorld::Update() {
-  stats.max_terrain_done_size =
-      std::max(stats.max_terrain_done_size, terrain_tasks_.done_tasks.size_approx());
-  stats.max_pool_size = std::max(stats.max_pool_size, mesher_output_data_pool_.allocs);
-  stats.max_pool_size2 = std::max(stats.max_pool_size2, mesh_alg_pool_.allocs);
-  stats.max_pool_size3 = std::max(stats.max_pool_size3, noise_generator_pool_.allocs);
+  stats_.max_terrain_done_size =
+      std::max(stats_.max_terrain_done_size, terrain_tasks_.done_tasks.size_approx());
+  stats_.max_pool_size = std::max(stats_.max_pool_size, mesher_output_data_pool_.allocs);
+  stats_.max_pool_size2 = std::max(stats_.max_pool_size2, mesh_alg_pool_.allocs);
+  stats_.max_pool_size3 = std::max(stats_.max_pool_size3, noise_generator_pool_.allocs);
   ZoneScoped;
-  if (done != prev_done && done == world_gen_chunk_payload) {
-    world_load_time = t.ElapsedMS();
+  if (world_start_finished_chunks_ != prev_world_start_finished_chunks_ &&
+      world_start_finished_chunks_ == world_gen_chunk_payload_) {
+    worldNload_time_ = world_start_timer_.ElapsedMS();
   }
-  prev_done = done;
+  prev_world_start_finished_chunks_ = world_start_finished_chunks_;
 
   {
     ZoneScopedN("proc terrain to complete");
@@ -66,7 +68,6 @@ void VoxelWorld::Update() {
         EASSERT(terrain_task.noise);
         terrain_tasks_.done_tasks.enqueue(ProcessTerrainTask(terrain_task));
       });
-      terrain_tasks_.to_complete_task_queue_size++;
     }
   }
 
@@ -74,17 +75,16 @@ void VoxelWorld::Update() {
     ZoneScopedN("finished terrain tasks");
     // TODO: refactor
     TerrainGenResponse terrain_response;
-    while (terrain_tasks_.in_flight > 0 && mesh_ts_.in_flight < max_terrain_tasks_ &&
+    while (terrain_tasks_.in_flight > 0 && mesh_tasks_.in_flight < max_terrain_tasks_ &&
            terrain_tasks_.done_tasks.try_dequeue(terrain_response)) {
       uint32_t alg_data_alloc = mesh_alg_pool_.Alloc();
       MesherOutputData* data = mesher_output_data_pool_.Alloc();
       EASSERT(data);
       MeshTask task{data, alg_data_alloc, terrain_response.grid};
       noise_generator_pool_.Free(terrain_response.noise);
-      mesh_ts_.in_flight++;
+      mesh_tasks_.in_flight++;
       thread_pool.detach_task(
-          [task, this]() mutable { mesh_ts_.done_tasks.enqueue(ProcessMeshTask(task)); });
-      terrain_tasks_.to_complete_task_queue_size--;
+          [task, this]() mutable { mesh_tasks_.done_tasks.enqueue(ProcessMeshTask(task)); });
       terrain_tasks_.in_flight--;
     }
   }
@@ -93,10 +93,10 @@ void VoxelWorld::Update() {
   {
     ZoneScopedN("chunk mesh upload process");
     chunk_mesh_uploads_.clear();
-    while (mesh_ts_.in_flight > 0 && mesh_ts_.done_tasks.try_dequeue(mesh_task)) {
+    while (mesh_tasks_.in_flight > 0 && mesh_tasks_.done_tasks.try_dequeue(mesh_task)) {
       auto& alg_data = *mesh_alg_pool_.Get(mesh_task.alg_data_idx);
       if (mesh_task.data->vertex_cnt) {
-        stats.tot_quads += mesh_task.data->vertex_cnt;
+        stats_.tot_quads += mesh_task.data->vertex_cnt;
         ChunkMeshUpload u{};
         u.data = mesh_task.data->vertices.data();
         u.pos = mesh_task.grid->pos;
@@ -105,20 +105,22 @@ void VoxelWorld::Update() {
           u.counts[i] = alg_data.face_vertex_lengths[i];
         }
         chunk_mesh_uploads_.emplace_back(u);
-        stats.tot_meshes++;
+        stats_.tot_meshes++;
       }
-      mesh_ts_.in_flight--;
+      mesh_tasks_.in_flight--;
       grid_pool_.Free(mesh_task.grid);
       mesh_alg_pool_.Free(mesh_task.alg_data_idx);
       mesher_output_data_pool_.Free(mesh_task.data);
-      done++;
+      world_start_finished_chunks_++;
     }
   }
 
   if (chunk_mesh_uploads_.size()) {
     // TODO: fix
-    std::vector<ChunkAllocHandle> handles(chunk_mesh_uploads_.size());
-    ChunkMeshManager::Get().UploadChunkMeshes(chunk_mesh_uploads_, handles);
+    auto old_count = mesh_handles_.size();
+    mesh_handles_.resize(mesh_handles_.size() + chunk_mesh_uploads_.size());
+    std::span<ChunkAllocHandle> s(mesh_handles_.begin() + old_count, mesh_handles_.size());
+    ChunkMeshManager::Get().UploadChunkMeshes(chunk_mesh_uploads_, s);
   }
 }
 
@@ -154,18 +156,41 @@ MeshTask VoxelWorld::ProcessMeshTask(MeshTask& task) {
 
 void VoxelWorld::DrawImGuiStats() const {
   if (ImGui::TreeNodeEx("maxes", ImGuiTreeNodeFlags_DefaultOpen)) {
-    ImGui::Text("terrain done queue: %ld", stats.max_terrain_done_size);
-    ImGui::Text("terrain to complete queue: %ld", stats.max_terrain_to_complete_size);
-    ImGui::Text("mesher_output_data_pool_ : %ld", stats.max_pool_size);
-    ImGui::Text("mesher_output_data_pool_ max : %ld", stats.max_pool_size);
-    ImGui::Text("mesh_alg_pool_: %ld", stats.max_pool_size2);
-    ImGui::Text("noise_generator_pool_: %ld", stats.max_pool_size3);
-
+    ImGui::Text("terrain done queue: %ld", stats_.max_terrain_done_size);
+    ImGui::Text("mesher_output_data_pool_ : %ld", stats_.max_pool_size);
+    ImGui::Text("mesher_output_data_pool_ max : %ld", stats_.max_pool_size);
+    ImGui::Text("mesh_alg_pool_: %ld", stats_.max_pool_size2);
+    ImGui::Text("noise_generator_pool_: %ld", stats_.max_pool_size3);
     ImGui::TreePop();
   }
-  ImGui::Text("done: %d", done);
-  ImGui::Text("tot chunks: %d", world_gen_chunk_payload);
-  ImGui::Text("Final world load time: %f", world_load_time);
-  ImGui::Text("meshes: %ld, quads: %ld, avg mesh quads: %ld", stats.tot_meshes, stats.tot_quads,
-              stats.tot_quads / std::max(stats.tot_meshes, 1ul));
+  ImGui::Text("done: %d", world_start_finished_chunks_);
+  ImGui::Text("tot chunks: %d", world_gen_chunk_payload_);
+  ImGui::Text("Final world load time: %f", worldNload_time_);
+  ImGui::Text("meshes: %ld, quads: %ld, avg mesh quads: %ld", stats_.tot_meshes, stats_.tot_quads,
+              stats_.tot_quads / std::max(stats_.tot_meshes, 1ul));
+}
+
+void VoxelWorld::Shutdown() {
+  ChunkMeshManager::Get().FreeMeshes(mesh_handles_);
+  initalized_ = false;
+}
+
+void VoxelWorld::Reset() {
+  thread_pool.wait();
+  ChunkMeshManager::Get().FreeMeshes(mesh_handles_);
+  stats_ = {};
+  chunk_mesh_uploads_.clear();
+  mesh_handles_.clear();
+  ResetPools();
+}
+void VoxelWorld::ResetPools() {
+  grid_pool_.ClearNoDealloc();
+  mesh_alg_pool_.ClearNoDealloc();
+  mesher_output_data_pool_.ClearNoDealloc();
+  noise_generator_pool_.ClearNoDealloc();
+  while (terrain_tasks_.in_flight > 0 || mesh_tasks_.in_flight > 0) {
+    Update();
+  }
+  terrain_tasks_.Clear();
+  mesh_tasks_.Clear();
 }

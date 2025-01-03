@@ -15,7 +15,6 @@
 #include "application/CVar.hpp"
 #include "glm/ext/matrix_clip_space.hpp"
 #include "glm/ext/matrix_transform.hpp"
-#include "imgui.h"
 #include "tvk/Barrier.hpp"
 #include "tvk/Error.hpp"
 
@@ -70,13 +69,12 @@ void VoxelRenderer::Draw(bool draw_imgui) {
   scene_data_ubo_cpu_.world_center_viewproj = proj * view;
   frustum_cpu_.SetData(non_reversed_proj * view);
 
-  ChunkMeshManager::Get().CopyDrawBuffers();
-
   if (!UpdateSwapchainAndCheckIfReady()) {
     return;
   }
   WaitForMainRenderFence();
 
+  ChunkMeshManager::Get().CopyDrawBuffers();
   ChunkMeshManager::Get().Update();
   FlushFrameData();
   if (!AcquireNextImage()) {
@@ -251,8 +249,8 @@ void VoxelRenderer::DrawRayMarchCompute(VkCommandBuffer cmd, tvk::AllocatedImage
     float time;
     vec3 cam_pos;
   } pc;
-  pc.aabb_min = vec4(vsettings.aabb.min, 0);
-  pc.aabb_max = vec4(vsettings.aabb.max, 0);
+  pc.aabb_min = vec4(vec3(-0.5), 0);
+  pc.aabb_max = vec4(vec3(0.5), 0);
   pc.time = scene_data_->time;
   pc.cam_dir = scene_data_->cam_dir;
   pc.cam_pos = scene_data_->cam_pos;
@@ -266,11 +264,6 @@ void VoxelRenderer::DrawRayMarchCompute(VkCommandBuffer cmd, tvk::AllocatedImage
   vkCmdPushConstants(cmd, raymarch_pipeline_.pipeline->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
                      sizeof(PC), &pc);
   vkCmdDispatch(cmd, (img.extent.width + 7) / 8, (img.extent.height + 7) / 8, 1);
-}
-
-void VoxelRenderer::DrawImGui() {
-  ImGui::DragFloat3("aabb min", &vsettings.aabb.min.x);
-  ImGui::DragFloat3("aabb max", &vsettings.aabb.max.x);
 }
 
 void VoxelRenderer::Init(Window* window) {

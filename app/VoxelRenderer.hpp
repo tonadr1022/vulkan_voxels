@@ -19,10 +19,6 @@ struct AABB {
   vec3 max;
 };
 
-struct VSettings {
-  AABB aabb;
-};
-
 struct SceneDataUBO {
   mat4 view;
   mat4 proj;
@@ -42,9 +38,6 @@ struct VoxelRenderer : public Renderer {
   void Draw(const SceneData* scene_data, bool draw_imgui);
 
   void InitPipelines() override;
-
-  VSettings vsettings;
-  void DrawImGui() override;
 
  private:
   struct ExtendedFrameData {

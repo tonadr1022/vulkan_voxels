@@ -30,6 +30,7 @@ class ChunkMeshManager {
   void DrawImGuiStats() const;
   void Cleanup();
   void UploadChunkMeshes(std::span<ChunkMeshUpload> uploads, std::span<ChunkAllocHandle> handles);
+  void FreeMeshes(std::span<ChunkAllocHandle> handles);
   void Update();
   void CopyDrawBuffers();
 

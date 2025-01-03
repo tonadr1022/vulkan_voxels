@@ -193,7 +193,7 @@ struct VertexPool {
   tvk::AllocatedBuffer draw_infos_gpu_buf{};
   tvk::AllocatedBuffer draw_cmd_gpu_buf{};
   tvk::AllocatedBuffer draw_count_buffer{};
-  uint32_t draw_cmds_count{};
+  size_t draw_cmds_count{};
 
   void CopyDrawsToStaging() {
     ZoneScoped;
@@ -275,6 +275,7 @@ struct VertexPool {
   }
 
   void FreeMesh(uint32_t handle) {
+    EASSERT(draw_cmds_count > 0);
     draw_cmds_count--;
     draw_cmd_allocator.Free(handle);
   }

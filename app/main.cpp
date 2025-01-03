@@ -56,6 +56,9 @@ struct Settings {
 
 std::unique_ptr<VoxelWorld> world;
 void InitWorld() {
+  if (world) {
+    world->Shutdown();
+  }
   world = std::make_unique<VoxelWorld>();
   world->Init();
   world->GenerateWorld(settings.radius);
@@ -147,7 +150,8 @@ void OnEvent(const SDL_Event& e) {
       renderer.Screenshot(path);
       fmt::println("Saved screenshot to {}", path);
     } else if (sym == SDLK_F10) {
-      InitWorld();
+      world->Reset();
+      world->GenerateWorld(settings.radius);
     }
   } else if (e.type == SDL_EVENT_KEY_UP) {
     Input::SetKeyPressed(e.key.key, false);
@@ -243,8 +247,6 @@ int main() {
   main_cam.position = vec3(-700, 2250, -600);
   // main_cam.position = vec3(0, 0, 2);
   main_cam.LookAt({0, 0, 0});
-  renderer.vsettings.aabb.min = vec3{-0.5};
-  renderer.vsettings.aabb.max = vec3{0.5};
 
   Timer timer;
   double last_time = timer.ElapsedMS();
