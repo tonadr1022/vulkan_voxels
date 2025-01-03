@@ -17,10 +17,11 @@ struct MeshTaskEnqueue {
   uint32_t chunk_handle;
 };
 
-struct MeshTask {
+struct MeshTaskResponse {
   uint32_t output_data_handle;
   uint32_t alg_data_handle;
   uint32_t chunk_handle;
+  uint32_t staging_copy_idx;
   void Process();
 };
 
@@ -81,7 +82,7 @@ struct VoxelWorld {
 
   std::vector<ChunkMeshUpload> chunk_mesh_uploads_;
   TerrainGenResponse ProcessTerrainTask(TerrainGenTask& task);
-  MeshTask ProcessMeshTask(MeshTask& task);
+  MeshTaskResponse ProcessMeshTask(MeshTaskResponse& task);
   int seed_ = 1;
 
   PtrObjPool<Chunk> chunk_pool_;
@@ -90,7 +91,7 @@ struct VoxelWorld {
   gen::FBMNoise noise_;
 
   TaskPool<TerrainGenTask, TerrainGenResponse> terrain_tasks_;
-  TaskPool<MeshTaskEnqueue, MeshTask> mesh_tasks_;
+  TaskPool<MeshTaskEnqueue, MeshTaskResponse> mesh_tasks_;
 
   Timer world_start_timer_;
   int world_gen_chunk_payload_{};

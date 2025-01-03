@@ -271,7 +271,7 @@ int main() {
                                              "World Update Sleep Time MS", 1);
   auto f = std::thread([]() {
     while (!should_quit) {
-      world->Update();
+      // world->Update();
       std::this_thread::sleep_for(std::chrono::milliseconds(world_update_sleep_time.Get()));
     }
   });
@@ -296,6 +296,7 @@ int main() {
     if (fake_delay.Get() > 0.0000001f) {
       std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<int>(fake_delay.Get())));
     }
+    world->Update();
     Update(dt);
 
     if (draw_imgui) {

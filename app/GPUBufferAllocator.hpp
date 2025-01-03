@@ -2,8 +2,11 @@
 
 #include <vulkan/vulkan_core.h>
 
+#include <span>
+
 #include "DeletionQueue.hpp"
 #include "Resource.hpp"
+#include "RingBuffer.hpp"
 #include "Types.hpp"
 
 struct NoneT {};
@@ -187,6 +190,84 @@ class DynamicBuffer {
   }
 };
 
+template <typename T>
+struct TSVertexUploadRingBuffer {
+ private:
+  struct Block {
+    size_t offset;
+    size_t size;
+  };
+
+ public:
+  void Init(size_t size) {
+    staging_ = tvk::Allocator::Get().CreateStagingBuffer(size);
+    ring_buf_.Init(size);
+  }
+
+  [[nodiscard]] uint32_t Copy(std::span<T> data) {
+    EASSERT(data.size());
+    std::lock_guard<std::mutex> lock(mtx);
+    size_t offset = ring_buf_.Allocate(data.size_bytes());
+    auto* start = reinterpret_cast<unsigned char*>(staging_.data);
+    memcpy(start + offset, data.data(), data.size_bytes());
+
+    uint32_t copy_idx;
+    if (free_copy_indices_.size()) {
+      copy_idx = free_copy_indices_.back();
+      free_copy_indices_.pop_back();
+    } else {
+      copy_idx = copies_.size();
+      copies_.emplace_back();
+    }
+
+    copies_[copy_idx] = Block{.offset = offset, .size = data.size_bytes()};
+    return copy_idx;
+  }
+
+  // worker threads add copies to the staging buffer
+  // staging buffer is flushed to the GPU every frame
+  void GetBlock(uint32_t copy_idx, size_t& offset, size_t& size) {
+    std::lock_guard<std::mutex> lock(mtx);
+    EASSERT(copy_idx < copies_.size());
+    offset = copies_[copy_idx].offset;
+    size = copies_[copy_idx].size;
+  }
+
+  void Reset() {
+    std::lock_guard<std::mutex> lock(mtx);
+    free_copy_indices_.reserve(free_copy_indices_.size() + in_use_.size());
+    free_copy_indices_.insert(free_copy_indices_.end(), in_use_.begin(), in_use_.end());
+    in_use_.clear();
+  }
+  void Print() {
+    std::lock_guard<std::mutex> lock(mtx);
+    fmt::println("size: {}", copies_.size());
+    // for (const Block& c : copies_) {
+    //   fmt::println("{} {}", c.offset, c.size);
+    // }
+  }
+
+  const tvk::AllocatedBuffer& Staging() { return staging_; }
+
+  void Destroy() {
+    std::lock_guard<std::mutex> lock(mtx);
+    tvk::Allocator::Get().DestroyBuffer(staging_);
+  }
+  void AddInUseCopy(uint32_t copy) {
+    std::lock_guard<std::mutex> lock(mtx);
+    in_use_.emplace_back(copy);
+  }
+
+  std::mutex mtx;
+
+ private:
+  std::vector<uint32_t> in_use_;
+  NonOwningRingBuffer ring_buf_;
+  tvk::AllocatedBuffer staging_;
+  std::vector<uint32_t> free_copy_indices_;
+  std::vector<Block> copies_;
+};
+
 template <typename UserT = NoneT>
 struct VertexPool {
   DynamicBuffer<UserT> draw_cmd_allocator;
@@ -196,6 +277,9 @@ struct VertexPool {
   tvk::AllocatedBuffer draw_cmd_gpu_buf{};
   tvk::AllocatedBuffer draw_count_buffer{};
   size_t draw_cmds_count{};
+  TSVertexUploadRingBuffer<uint64_t> vertex_staging;
+  std::vector<VkBufferCopy> copies;
+  size_t curr_copies_tot_size_bytes{};
 
   void CopyDrawsToStaging() {
     ZoneScoped;
@@ -246,6 +330,7 @@ struct VertexPool {
     alloc.DestroyBuffer(draw_infos_staging);
     alloc.DestroyBuffer(draw_count_buffer);
     alloc.DestroyBuffer(draw_cmd_gpu_buf);
+    vertex_staging.Destroy();
   }
 
   void Init(uint32_t size_bytes, uint32_t alignment, VkBufferUsageFlagBits device_buffer_usage,
@@ -274,6 +359,7 @@ struct VertexPool {
         init_max_draw_cmds * sizeof(VkDrawIndexedIndirectCommand),
         VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         VMA_MEMORY_USAGE_GPU_ONLY);
+    vertex_staging.Init(sizeof(uint64_t) * 100 * 10000);
   }
 
   void FreeMesh(uint32_t handle) {
@@ -282,40 +368,27 @@ struct VertexPool {
     draw_cmd_allocator.Free(handle);
   }
 
-  // TODO: for chunks specifically, can group the copies since the mesh from the mesher has all 6
-  // faces combined contiguously
-  uint32_t AddMesh(uint32_t size_bytes, void* data, uint32_t& offset, UserT user_data) {
+  uint32_t AddMesh(size_t copy_idx, UserT user_data) {
     ZoneScoped;
-    auto handle = draw_cmd_allocator.Allocate(size_bytes, offset, user_data);
-    copies.emplace_back(curr_copies_tot_size_bytes, offset, size_bytes);
-    copy_data_ptrs.emplace_back(data);
-    curr_copies_tot_size_bytes += size_bytes;
+    // fmt::println("ADD MESH copy_idx {}", copy_idx);
+    VkBufferCopy copy;
+    vertex_staging.AddInUseCopy(copy_idx);
+    vertex_staging.GetBlock(copy_idx, copy.srcOffset, copy.size);
+    uint32_t dst_offset;
+    auto handle = draw_cmd_allocator.Allocate(copy.size, dst_offset, user_data);
+    copy.dstOffset = dst_offset;
+    copies.emplace_back(copy);
     draw_cmds_count++;
     return handle;
   }
 
-  void CopyToStaging(tvk::AllocatedBuffer& staging) {
+  void ExecuteCopy(VkCommandBuffer cmd) {
     ZoneScoped;
-    assert(copies.size() == copy_data_ptrs.size());
-    size_t staging_offset{0};
-    for (size_t i = 0; i < copies.size(); i++) {
-      memcpy(reinterpret_cast<uint8_t*>(staging.data) + staging_offset, copy_data_ptrs[i],
-             copies[i].size);
-      staging_offset += copies[i].size;
-    }
-  }
-
-  void ExecuteCopy(tvk::AllocatedBuffer& staging, VkCommandBuffer cmd) {
-    ZoneScoped;
-    vkCmdCopyBuffer(cmd, staging.buffer, quad_gpu_buf.buffer, copies.size(), copies.data());
+    vkCmdCopyBuffer(cmd, vertex_staging.Staging().buffer, quad_gpu_buf.buffer, copies.size(),
+                    copies.data());
     copies.clear();
-    copy_data_ptrs.clear();
-    curr_copies_tot_size_bytes = 0;
+    vertex_staging.Reset();
   }
 
   [[nodiscard]] size_t CurrCopyOperationSize() const { return curr_copies_tot_size_bytes; }
-
-  std::vector<VkBufferCopy> copies;
-  size_t curr_copies_tot_size_bytes{};
-  std::vector<void*> copy_data_ptrs;
 };

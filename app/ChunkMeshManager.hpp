@@ -6,6 +6,7 @@
 #include <span>
 
 #include "GPUBufferAllocator.hpp"
+#include "Types.hpp"
 #include "application/Renderer.hpp"
 #include "voxels/Types.hpp"
 
@@ -28,6 +29,7 @@ class ChunkMeshManager {
   void Init(VoxelRenderer* renderer);
   void DrawImGuiStats() const;
   void Cleanup();
+  [[nodiscard]] uint32_t CopyChunkToStaging(std::span<uint64_t> data);
   void UploadChunkMeshes(std::span<ChunkMeshUpload> uploads, std::span<ChunkAllocHandle> handles);
   void FreeMeshes(std::span<ChunkAllocHandle> handles);
   void Update();
@@ -39,30 +41,10 @@ class ChunkMeshManager {
 
  private:
   friend struct VoxelRenderer;
-  template <typename T>
-  struct WaitingResource {
-    T data;
-    AsyncTransfer transfer;
-    std::unique_ptr<tvk::AllocatedBuffer> staging_buf;
-  };
-  struct ChunkMeshUploadInternal {
-    // ChunkUniformData uniform;
-    // ChunkAllocHandle handle;
-    // uint32_t base_vertex;
-    // uint32_t vertex_count;
-  };
-  struct ChunkMeshUploadBatch {
-    // std::vector<ChunkMeshUploadInternal> uploads;
-  };
   VoxelRenderer* renderer_{};
-  // std::vector<DIIC> draw_indir_cmds_;
-  // std::vector<ChunkUniformData> chunk_uniforms_;
 
-  std::list<WaitingResource<ChunkMeshUploadBatch>> pending_mesh_uploads_;
+  std::list<AsyncTransfer> transfers_;
   VertexPool<ChunkDrawUniformData> chunk_quad_buffer_;
   tvk::AllocatedBuffer quad_index_buf_;
   tvk::AllocatedBuffer chunk_uniform_gpu_buf_;
-
-  // void MakeDrawIndirectGPUBuf(size_t size);
-  // void MakeChunkUniformGPUBuf(size_t size);
 };

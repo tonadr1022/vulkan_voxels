@@ -3,6 +3,5 @@
 struct ChunkMeshUpload {
   ivec3 pos;
   uint32_t counts[6];
-  void* data;
-  uint32_t tot_cnt;
+  uint32_t staging_copy_idx;
 };

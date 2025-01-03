@@ -27,7 +27,7 @@
 #include "tvk/Util.hpp"
 
 struct Settings {
-  inline static AutoCVarInt vsync{"renderer.vsync", "display vsync", 1, CVarFlags::EditCheckbox};
+  inline static AutoCVarInt vsync{"renderer.vsync", "display vsync", 0, CVarFlags::EditCheckbox};
 };
 
 void Renderer::Init(Window* window) {

@@ -118,13 +118,18 @@ void VoxelWorld::Update() {
       mesh_tasks_.in_flight++;
       uint32_t data_handle = mesher_output_data_pool_.Alloc();
       uint32_t alg_data_alloc = mesh_alg_pool_.Alloc();
-      MeshTask task{data_handle, alg_data_alloc, enq_mesh_task.chunk_handle};
       thread_pool.detach_task(
-          [this, task]() mutable { mesh_tasks_.done_tasks.enqueue(ProcessMeshTask(task)); });
+          [this, data_handle, alg_data_alloc, chunk_handle = enq_mesh_task.chunk_handle]() mutable {
+            MeshTaskResponse response;
+            response.output_data_handle = data_handle;
+            response.alg_data_handle = alg_data_alloc;
+            response.chunk_handle = chunk_handle;
+            mesh_tasks_.done_tasks.enqueue(ProcessMeshTask(response));
+          });
     }
   }
 
-  MeshTask mesh_task;
+  MeshTaskResponse mesh_task;
   {
     ZoneScopedN("chunk mesh upload process");
     chunk_mesh_uploads_.clear();
@@ -134,10 +139,8 @@ void VoxelWorld::Update() {
       if (data.vertex_cnt > 0) {
         stats_.tot_quads += data.vertex_cnt;
         ChunkMeshUpload u{};
-        u.data = data.vertices.data();
+        u.staging_copy_idx = mesh_task.staging_copy_idx;
         u.pos = chunk_pool_.Get(mesh_task.chunk_handle)->pos;
-        u.tot_cnt = data.vertex_cnt;
-
         for (int i = 0; i < 6; i++) {
           u.counts[i] = alg_data.face_vertex_lengths[i];
         }
@@ -170,16 +173,17 @@ TerrainGenResponse VoxelWorld::ProcessTerrainTask(TerrainGenTask& task) {
   // HeightMapFloats<i8vec3{PCS}> white_noise_floats;
   auto* chunk = chunk_pool_.Get(task.chunk_handle);
   noise.FillWhiteNoise<i8vec3{PCS}>(white_noise_floats, chunk->pos * CS);
-  static AutoCVarInt chunk_mult("chunks.chunk_mult", "chunk mult", 2);
+  static AutoCVarInt chunk_mult("chunks.chunk_mult", "chunk mult", 1);
   // constexpr int Mults[] = {1, 2, 4, 8, 16, 32, 64};
   // fmt::println("get {}", chunk_mult.Get());
   auto m = chunk_mult.Get();
   EASSERT(m);
   noise.FillNoise2D<i8vec3{PCS}>(height_map_floats, ivec2{chunk->pos.x, chunk->pos.z} * CS / m);
   gen::NoiseToHeights(height_map_floats, heights, {0, (terrain_gen_chunks_y.Get() * CS / m)});
+  gen::FillChunk(chunk->grid, chunk->pos * CS, heights, [](int, int, int) { return 128; });
   // gen::NoiseToHeights(height_map_floats, heights, {0, terrain_gen_chunks_y.Get() * CS});
   // int i = 0;
-  // gen::FillSphere<i8vec3{PCS}>(task.grid->grid, [&i, &white_noise_floats]() {
+  // gen::FillSphere<i8vec3{PCS}>(chunk->grid, [&i, &white_noise_floats]() {
   //   return std::fmod((white_noise_floats[i++ % PCS2] + 1.f) * 128.f, 254) + 1;
   // });
   // gen::FillChunk(
@@ -191,18 +195,22 @@ TerrainGenResponse VoxelWorld::ProcessTerrainTask(TerrainGenTask& task) {
   //                        MaxMaterial) +
   //              1;
   //     });
-  gen::FillChunk(chunk->grid, chunk->pos * CS, heights, [](int, int, int) { return 128; });
   return {task.chunk_handle, chunk->pos};
 }
 
-MeshTask VoxelWorld::ProcessMeshTask(MeshTask& task) {
+MeshTaskResponse VoxelWorld::ProcessMeshTask(MeshTaskResponse& task) {
   ZoneScoped;
   auto& chunk = *chunk_pool_.Get(task.chunk_handle);
   MeshAlgData* alg_data = mesh_alg_pool_.Get(task.alg_data_handle);
   EASSERT(alg_data);
   alg_data->mask = &chunk.grid.mask;
-  GenerateMesh(chunk.grid.grid.grid, *alg_data,
-               *mesher_output_data_pool_.Get(task.output_data_handle));
+  auto* data = mesher_output_data_pool_.Get(task.output_data_handle);
+  GenerateMesh(chunk.grid.grid.grid, *alg_data, *data);
+  if (data->vertices.size()) {
+    // fmt::println("s {}", data->vertices.size());
+    task.staging_copy_idx = ChunkMeshManager::Get().CopyChunkToStaging(data->vertices);
+    // fmt::println("task.staging_copy_idx {}", task.staging_copy_idx);
+  }
   return task;
 }
 

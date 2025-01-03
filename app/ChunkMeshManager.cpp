@@ -6,7 +6,6 @@
 
 #include "GPUBufferAllocator.hpp"
 #include "Resource.hpp"
-#include "StagingBufferPool.hpp"
 #include "VoxelRenderer.hpp"
 #include "application/CVar.hpp"
 #include "application/Renderer.hpp"
@@ -72,42 +71,19 @@ void ChunkMeshManager::FreeMeshes(std::span<ChunkAllocHandle> handles) {
 void ChunkMeshManager::UploadChunkMeshes(std::span<ChunkMeshUpload> uploads,
                                          std::span<ChunkAllocHandle> handles) {
   ZoneScoped;
-  WaitingResource<ChunkMeshUploadBatch> new_mesh_upload_batch;
-
   size_t tot_upload_size_bytes{0};
   size_t idx = 0;
-  for (const auto& [pos, counts, data, tot_cnt] : uploads) {
-    auto size_bytes = tot_cnt * QuadSize;
-    tot_upload_size_bytes += size_bytes;
-    uint32_t offset;
-    // TODO: LOD/octree instead
+  for (const auto& [pos, counts, staging_copy_idx] : uploads) {
     ChunkDrawUniformData d{};
     int mult = *CVarSystem::Get().GetIntCVar("chunks.chunk_mult");
     d.position = ivec4(pos, mult << 3);
-
     for (int i = 0; i < 6; i++) {
       d.vertex_counts[i] = counts[i];
     }
-    ChunkAllocHandle handle = chunk_quad_buffer_.AddMesh(size_bytes, data, offset, d);
+    ChunkAllocHandle handle = chunk_quad_buffer_.AddMesh(staging_copy_idx, d);
     handles[idx++] = handle;
   }
   if (!tot_upload_size_bytes) return;
-  // TODO: copy to staging buffer on another thread
-  std::unique_ptr<tvk::AllocatedBuffer> buf =
-      renderer_->staging_buffer_pool_.GetBuffer(tot_upload_size_bytes);
-  chunk_quad_buffer_.CopyToStaging(*buf);
-  {
-    ZoneScopedN("submit upload chunk mesh");
-    auto* staging = buf.get();
-    // TODO: don't do this, this makes a fence for every copy
-    new_mesh_upload_batch.transfer =
-        renderer_->TransferSubmitAsync([this, staging](VkCommandBuffer cmd) {
-          chunk_quad_buffer_.ExecuteCopy(*staging, cmd);
-          // transfer ownership to renderer?
-        });
-    new_mesh_upload_batch.staging_buf = std::move(buf);
-  }
-  pending_mesh_uploads_.emplace_back(std::move(new_mesh_upload_batch));
 }
 
 ChunkMeshManager& ChunkMeshManager::Get() {
@@ -117,23 +93,25 @@ ChunkMeshManager& ChunkMeshManager::Get() {
 
 void ChunkMeshManager::Update() {
   ZoneScopedN("ChunkMeshManager Update");
-  for (auto it = pending_mesh_uploads_.begin(); it != pending_mesh_uploads_.end();) {
-    auto& upload = *it;
-    auto status = vkGetFenceStatus(renderer_->device_, upload.transfer.fence);
+  if (chunk_quad_buffer_.copies.size()) {
+    transfers_.emplace_back(renderer_->TransferSubmitAsync([this](VkCommandBuffer cmd) {
+      // TracyVkZone(renderer_->graphics_queue_ctx_, cmd, "Copy");
+      chunk_quad_buffer_.ExecuteCopy(cmd);
+    }));
+    // transfers_.emplace_back(renderer_->TransferSubmitAsync(
+    //     [this](VkCommandBuffer cmd) { chunk_quad_buffer_.ExecuteCopy(cmd); }));
+  }
+  for (auto it = transfers_.begin(); it != transfers_.end();) {
+    auto& transfer = *it;
+    auto status = vkGetFenceStatus(renderer_->device_, transfer.fence);
     EASSERT(status != VK_ERROR_DEVICE_LOST);
     if (status == VK_ERROR_DEVICE_LOST) {
       fmt::println("failed!");
       exit(1);
     }
     if (status == VK_SUCCESS) {
-      renderer_->staging_buffer_pool_.ReturnBuffer(std::move(upload.staging_buf));
-      // mesh upload finished, add the draw command
-      // for (const auto& u : upload.data.uploads) {
-      //   reinterpret_cast<Allocation<ChunkUniformData>*>(u.handle)->bits |= 0x10;
-      // }
-      renderer_->free_transfer_cmd_buffers_.emplace_back(upload.transfer.cmd);
-      renderer_->fence_pool_.AddFreeFence(upload.transfer.fence);
-      it = pending_mesh_uploads_.erase(it);
+      renderer_->fence_pool_.AddFreeFence(transfer.fence);
+      it = transfers_.erase(it);
     } else {
       it++;
     }
@@ -162,4 +140,8 @@ void ChunkMeshManager::CopyDrawBuffers() {
 
   // renderer_->ImmediateSubmit(
   //     [this](VkCommandBuffer cmd) { chunk_quad_buffer_.CopyDrawsStagingToGPU(cmd); });
+}
+
+uint32_t ChunkMeshManager::CopyChunkToStaging(std::span<uint64_t> data) {
+  return chunk_quad_buffer_.vertex_staging.Copy(data);
 }
