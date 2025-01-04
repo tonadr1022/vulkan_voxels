@@ -3,6 +3,7 @@
 #include <vulkan/vulkan_core.h>
 
 #include <span>
+#include <tracy/Tracy.hpp>
 
 #include "DeletionQueue.hpp"
 #include "Resource.hpp"
@@ -205,19 +206,28 @@ struct TSVertexUploadRingBuffer {
   }
 
   [[nodiscard]] uint32_t Copy(std::span<T> data) {
+    ZoneScoped;
     EASSERT(data.size());
-    std::lock_guard<std::mutex> lock(mtx);
-    size_t offset = ring_buf_.Allocate(data.size_bytes());
+    size_t offset;
+    {
+      ZoneScopedN("acquire offset in copy");
+      std::lock_guard<std::mutex> lock(mtx);
+      offset = ring_buf_.Allocate(data.size_bytes());
+    }
     auto* start = reinterpret_cast<unsigned char*>(staging_.data);
     memcpy(start + offset, data.data(), data.size_bytes());
 
     uint32_t copy_idx;
-    if (free_copy_indices_.size()) {
-      copy_idx = free_copy_indices_.back();
-      free_copy_indices_.pop_back();
-    } else {
-      copy_idx = copies_.size();
-      copies_.emplace_back();
+    {
+      ZoneScopedN("get copy index lock");
+      std::lock_guard<std::mutex> lock(mtx);
+      if (free_copy_indices_.size()) {
+        copy_idx = free_copy_indices_.back();
+        free_copy_indices_.pop_back();
+      } else {
+        copy_idx = copies_.size();
+        copies_.emplace_back();
+      }
     }
 
     copies_[copy_idx] = Block{.offset = offset, .size = data.size_bytes()};
@@ -227,6 +237,7 @@ struct TSVertexUploadRingBuffer {
   // worker threads add copies to the staging buffer
   // staging buffer is flushed to the GPU every frame
   void GetBlock(uint32_t copy_idx, size_t& offset, size_t& size) {
+    ZoneScoped;
     std::lock_guard<std::mutex> lock(mtx);
     EASSERT(copy_idx < copies_.size());
     offset = copies_[copy_idx].offset;
@@ -240,8 +251,8 @@ struct TSVertexUploadRingBuffer {
     in_use_.clear();
   }
   void Print() {
-    std::lock_guard<std::mutex> lock(mtx);
-    fmt::println("size: {}", copies_.size());
+    // std::lock_guard<std::mutex> lock(mtx);
+    // fmt::println("size: {}", copies_.size());
     // for (const Block& c : copies_) {
     //   fmt::println("{} {}", c.offset, c.size);
     // }

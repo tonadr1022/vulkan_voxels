@@ -25,6 +25,7 @@ void FBMNoise::GetNoise(std::span<float> out, uvec2 start, uvec2 size) const {
 }
 
 void NoiseToHeights(std::span<float> noise, HeightMapData& data, uvec2 range) {
+  ZoneScoped;
   uint32_t span = range.y - range.x;
   data.range.x = std::numeric_limits<int>::max();
   data.range.y = std::numeric_limits<int>::lowest();

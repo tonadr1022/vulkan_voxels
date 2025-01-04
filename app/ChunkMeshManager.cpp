@@ -109,26 +109,25 @@ void ChunkMeshManager::Update() {
   if (chunk_quad_buffer_.copies.size()) {
     // transfers_.emplace_back(renderer_->TransferSubmitAsync(
     //     [this](VkCommandBuffer cmd) { chunk_quad_buffer_.ExecuteCopy(cmd); }));
-    renderer_->ImmediateSubmit(
-        [this](VkCommandBuffer cmd) { chunk_quad_buffer_.ExecuteCopy(cmd); });
+    renderer_->TransferSubmit([this](VkCommandBuffer cmd) { chunk_quad_buffer_.ExecuteCopy(cmd); });
     // transfers_.emplace_back(renderer_->TransferSubmitAsync(
     //     [this](VkCommandBuffer cmd) { chunk_quad_buffer_.ExecuteCopy(cmd); }));
   }
-  for (auto it = transfers_.begin(); it != transfers_.end();) {
-    auto& transfer = *it;
-    auto status = vkGetFenceStatus(renderer_->device_, transfer.fence);
-    EASSERT(status != VK_ERROR_DEVICE_LOST);
-    if (status == VK_ERROR_DEVICE_LOST) {
-      fmt::println("failed!");
-      exit(1);
-    }
-    if (status == VK_SUCCESS) {
-      renderer_->fence_pool_.AddFreeFence(transfer.fence);
-      it = transfers_.erase(it);
-    } else {
-      it++;
-    }
-  }
+  // for (auto it = transfers_.begin(); it != transfers_.end();) {
+  //   auto& transfer = *it;
+  //   auto status = vkGetFenceStatus(renderer_->device_, transfer.fence);
+  //   EASSERT(status != VK_ERROR_DEVICE_LOST);
+  //   if (status == VK_ERROR_DEVICE_LOST) {
+  //     fmt::println("failed!");
+  //     exit(1);
+  //   }
+  //   if (status == VK_SUCCESS) {
+  //     renderer_->fence_pool_.AddFreeFence(transfer.fence);
+  //     it = transfers_.erase(it);
+  //   } else {
+  //     it++;
+  //   }
+  // }
 }
 
 void ChunkMeshManager::DrawImGuiStats() const {

@@ -11,5 +11,9 @@ struct PaddedChunkGrid3D {
     mask.SetXZY(x, y, z, val);
     grid.SetXZY(x, y, z, val);
   }
+  void Clear() {
+    memset(mask.mask.data(), 0, sizeof(mask));
+    memset(grid.grid.data(), 0, sizeof(grid.grid));
+  }
   [[nodiscard]] bool ValidateBitmask() const;
 };

@@ -1,5 +1,7 @@
 #include "VoxelWorld.hpp"
 
+#include <tracy/Tracy.hpp>
+
 #include "ChunkMeshManager.hpp"
 #include "application/CVar.hpp"
 #include "application/ThreadPool.hpp"
@@ -124,7 +126,8 @@ void VoxelWorld::Update() {
       // chunk->grid = {};
       EASSERT(chunk);
       chunk->pos = pos;
-      TerrainGenTask terrain_task{chunk_handle};
+      auto* height_map = GetHeightMap(chunk->pos.x, chunk->pos.z);
+      TerrainGenTask terrain_task{chunk_handle, height_map};
       terrain_tasks_.in_flight++;
       thread_pool.detach_task([terrain_task, this]() mutable {
         terrain_tasks_.done_tasks.enqueue(ProcessTerrainTask(terrain_task));
@@ -179,12 +182,14 @@ TerrainGenResponse VoxelWorld::ProcessTerrainTask(TerrainGenTask& task) {
   // constexpr int Mults[] = {1, 2, 4, 8, 16, 32, 64};
   auto m = chunk_mult.Get();
   EASSERT(m);
-  chunk->grid = {};
-  auto& height_map = GetHeightMap(chunk->pos.x, chunk->pos.z);
+  {
+    ZoneScopedN("Clear gird");
+    chunk->grid.Clear();
+  }
   // noise.FillNoise2D(height_map_floats, ivec2{chunk->pos.x, chunk->pos.z} * CS, uvec2{PCS}, m);
   // gen::NoiseToHeights(height_map_floats, heights,
   //                     {0, (((terrain_gen_chunks_y.Get() * CS / m) - 1))});
-  gen::FillChunk(chunk->grid, chunk->pos * CS, height_map, [](int, int, int) { return 128; });
+  gen::FillChunk(chunk->grid, chunk->pos * CS, *task.height_map, [](int, int, int) { return 128; });
 
   // gen::NoiseToHeights(height_map_floats, heights, {0, terrain_gen_chunks_y.Get() * CS});
   // int i = 0;
@@ -271,21 +276,29 @@ void VoxelWorld::ResetPools() {
   mesh_tasks_.Clear();
 }
 
-HeightMapData& VoxelWorld::GetHeightMap(int x, int y) {
-  std::lock_guard<std::mutex> lock(height_map_mtx_);
-  auto it = height_map_pool_idx_cache_.find({x, y});
-  if (it != height_map_pool_idx_cache_.end()) {
-    return *height_map_pool_.Get(it->second);
+HeightMapData* VoxelWorld::GetHeightMap(int x, int y) {
+  ZoneScoped;
+  {
+    auto it = height_map_pool_idx_cache_.find({x, y});
+    if (it != height_map_pool_idx_cache_.end()) {
+      return height_map_pool_.Get(it->second);
+    }
   }
-  uint32_t idx = height_map_pool_.Alloc();
+  uint32_t idx;
+  {
+    // std::lock_guard<std::mutex> lock(height_map_mtx_);
+    idx = height_map_pool_.Alloc();
+  }
   ChunkPaddedHeightMapFloats height_map_floats;
   auto* height_map = height_map_pool_.Get(idx);
+  // TODO: pass scale in
   noise_.FillNoise2D(height_map_floats, ivec2{x, y} * CS, uvec2{PCS}, 2);
   gen::NoiseToHeights(height_map_floats, *height_map,
                       {0, (terrain_gen_chunks_y.Get() * CS * 0.5) - 1});
 
-  // TODO: pass scale in
-
-  height_map_pool_idx_cache_.emplace(std::make_pair(x, y), idx);
-  return *height_map;
+  {
+    // std::lock_guard<std::mutex> lock(height_map_mtx_);
+    height_map_pool_idx_cache_.emplace(std::make_pair(x, y), idx);
+  }
+  return height_map;
 }

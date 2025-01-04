@@ -136,6 +136,7 @@ struct FBMNoise {
                                   seed_);
   }
   void FillNoise2D(HeightMapFloats& out, uvec2 start, uvec2 dims, float scale) const {
+    ZoneScoped;
     fbm->GenUniformGrid2D(out.data(), start.x, start.y, dims.x, dims.y, frequency_ * scale, seed_);
   }
   template <int Len>

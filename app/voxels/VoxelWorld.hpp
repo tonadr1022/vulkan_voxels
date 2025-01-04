@@ -41,6 +41,7 @@ struct MeshTaskResponse {
 
 struct TerrainGenTask {
   uint32_t chunk_handle;
+  HeightMapData* height_map;
 };
 
 struct TerrainGenResponse {
@@ -105,7 +106,7 @@ struct VoxelWorld {
   PtrObjPool<HeightMapData> height_map_pool_;
   gen::FBMNoise noise_;
 
-  HeightMapData& GetHeightMap(int x, int y);
+  HeightMapData* GetHeightMap(int x, int y);
   std::mutex height_map_mtx_;
   std::unordered_map<std::pair<int, int>, uint32_t> height_map_pool_idx_cache_;
   TaskPool<TerrainGenTask, TerrainGenResponse> terrain_tasks_;

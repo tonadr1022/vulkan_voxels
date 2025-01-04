@@ -43,7 +43,7 @@ class ChunkMeshManager {
   friend struct VoxelRenderer;
   VoxelRenderer* renderer_{};
 
-  std::list<AsyncTransfer> transfers_;
+  std::vector<AsyncTransfer> transfers_;
   VertexPool<ChunkDrawUniformData> chunk_quad_buffer_;
   tvk::AllocatedBuffer quad_index_buf_;
   tvk::AllocatedBuffer chunk_uniform_gpu_buf_;
