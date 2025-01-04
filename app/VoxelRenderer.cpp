@@ -316,7 +316,6 @@ void VoxelRenderer::DrawChunks(VkDescriptorSet scene_data_set, VkCommandBuffer c
                           chunk_mesh_pipeline_.pipeline->layout, 1, 1, &quad_set, 0, nullptr);
   vkCmdBindIndexBuffer(cmd, ChunkMeshManager::Get().quad_index_buf_.buffer, 0,
                        VK_INDEX_TYPE_UINT32);
-  // TODO: don't rely on that size
   vkCmdDrawIndexedIndirectCount(cmd, mgr.chunk_quad_buffer_.draw_cmd_gpu_buf.buffer, 0,
                                 mgr.chunk_quad_buffer_.draw_count_buffer.buffer, 0,
                                 mgr.chunk_quad_buffer_.draw_cmds_count * 6,

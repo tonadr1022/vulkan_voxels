@@ -4,7 +4,7 @@
 #include "voxels/Mask.hpp"
 
 struct PaddedChunkGrid3D {
-  Grid3D<i8vec3{PCS}> grid;
+  Grid3D<PCS> grid;
   PaddedChunkMask mask;
   static constexpr i8vec3 Dims = i8vec3{PCS};
   void Set(int x, int y, int z, uint8_t val) {

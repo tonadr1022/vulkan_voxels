@@ -130,4 +130,5 @@ struct Renderer {
 
  private:
   void RegisterComputePipelinesInternal(auto pipelines);
+  bool resize_req_{false};
 };

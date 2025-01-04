@@ -1,12 +1,26 @@
 #pragma once
 
+#include <queue>
+
 #include "ChunkMeshManager.hpp"
 #include "Mesher.hpp"
 #include "Pool.hpp"
 #include "application/Timer.hpp"
 #include "concurrentqueue.h"
 #include "voxels/Chunk.hpp"
+#include "voxels/Common.hpp"
 #include "voxels/Terrain.hpp"
+
+namespace std {
+template <>
+struct hash<std::pair<int, int>> {
+  std::size_t operator()(const std::pair<int, int>& pair) const {
+    std::size_t h1 = std::hash<int>{}(pair.first);
+    std::size_t h2 = std::hash<int>{}(pair.second);
+    return h1 ^ (h2 << 1);  // Combine hashes
+  }
+};
+}  // namespace std
 
 struct Chunk {
   PaddedChunkGrid3D grid;
@@ -40,7 +54,7 @@ struct TaskPool {
   // moodycamel::ConcurrentQueue<T> to_complete_tasks;
   size_t to_complete_task_queue_size{};
   moodycamel::ConcurrentQueue<D> done_tasks;
-  moodycamel::ConcurrentQueue<T> to_complete;
+  std::queue<T> to_complete;
   void Clear() {
     D cmp;
     while (to_complete_task_queue_size > 0) {
@@ -88,16 +102,23 @@ struct VoxelWorld {
   PtrObjPool<Chunk> chunk_pool_;
   PtrObjPool<MeshAlgData> mesh_alg_pool_;
   PtrObjPool<MesherOutputData> mesher_output_data_pool_;
+  PtrObjPool<HeightMapData> height_map_pool_;
   gen::FBMNoise noise_;
 
+  HeightMapData& GetHeightMap(int x, int y);
+  std::mutex height_map_mtx_;
+  std::unordered_map<std::pair<int, int>, uint32_t> height_map_pool_idx_cache_;
   TaskPool<TerrainGenTask, TerrainGenResponse> terrain_tasks_;
   TaskPool<MeshTaskEnqueue, MeshTaskResponse> mesh_tasks_;
 
   Timer world_start_timer_;
   int world_gen_chunk_payload_{};
-  int world_start_finished_chunks_{};
+  int tot_chunks_loaded{};
   int prev_world_start_finished_chunks_{};
   float world_load_time_{};
 
+  void ResetInternal();
+  std::mutex reset_mtx_;
+  bool reset_req_{false};
   bool initalized_{false};
 };

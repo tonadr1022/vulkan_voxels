@@ -6,11 +6,10 @@
 
 struct MeshOctree {
   MeshOctree() { noise.Init(1, 0.005, 4); }
-  void GenerateMesh(uvec3 pos, uint8_t ) {
+  void GenerateMesh(uvec3 pos, uint8_t) {
     int scale = 1;
-    HeightMapFloats<i8vec3{PCS}> heights;
-    noise.FillNoise2D<i8vec3{PCS}>(heights,
-                                   uvec2{(pos.x * CS / scale) - 1, (pos.y * CS / scale) - 1});
+    HeightMapFloats heights;
+    noise.FillNoise2D<PCS>(heights, uvec2{(pos.x * CS / scale) - 1, (pos.y * CS / scale) - 1});
   }
 
   gen::FBMNoise noise;

@@ -103,11 +103,11 @@ void DestroySwapchain(VkDevice device, const Swapchain& swapchain) {
 
 SwapchainStatus UpdateSwapchain(Swapchain& result, VkPhysicalDevice physicalDevice, VkDevice device,
                                 VkSurfaceKHR surface, uint32_t familyIndex, uint32_t new_width,
-                                uint32_t new_height, VkFormat format, bool vsync) {
+                                uint32_t new_height, VkFormat format, bool vsync, bool force) {
   if (new_width == 0 || new_height == 0) return SwapchainStatus::NotReady;
 
   if (result.extent.width == new_width && result.extent.height == new_height &&
-      vsync == result.vsync) {
+      vsync == result.vsync && !force) {
     return SwapchainStatus::Ready;
   }
 

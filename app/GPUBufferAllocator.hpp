@@ -281,13 +281,19 @@ struct VertexPool {
   std::vector<VkBufferCopy> copies;
   size_t curr_copies_tot_size_bytes{};
 
+ private:
+  std::mutex mtx_;
+
+ public:
   void CopyDrawsToStaging() {
     ZoneScoped;
+    std::lock_guard<std::mutex> lock(mtx_);
     auto& allocs = draw_cmd_allocator.Allocs();
     memcpy(draw_infos_staging.data, allocs.data(), sizeof(Allocation<UserT>) * allocs.size());
   }
 
   void CopyDrawsStagingToGPU(VkCommandBuffer cmd) {
+    std::lock_guard<std::mutex> lock(mtx_);
     VkBufferCopy copy{};
     copy.size = sizeof(Allocation<UserT>) * draw_cmd_allocator.Allocs().size();
     vkCmdCopyBuffer(cmd, draw_infos_staging.buffer, draw_infos_gpu_buf.buffer, 1, &copy);
@@ -295,6 +301,7 @@ struct VertexPool {
 
   void ResizeBuffers(tvk::DeletionQueue& del_queue) {
     // TODO: this can be much cleaner
+    std::lock_guard<std::mutex> lock(mtx_);
     EASSERT(draw_infos_staging.size && draw_infos_gpu_buf.size);
     EASSERT(draw_infos_staging.size == draw_infos_gpu_buf.size);
     if (draw_cmd_allocator.Allocs().size() > draw_infos_staging.size / sizeof(Allocation<UserT>)) {
@@ -324,6 +331,7 @@ struct VertexPool {
   }
 
   void Destroy() {
+    std::lock_guard<std::mutex> lock(mtx_);
     auto& alloc = tvk::Allocator::Get();
     alloc.DestroyBuffer(quad_gpu_buf);
     alloc.DestroyBuffer(draw_infos_gpu_buf);
@@ -336,6 +344,7 @@ struct VertexPool {
   void Init(uint32_t size_bytes, uint32_t alignment, VkBufferUsageFlagBits device_buffer_usage,
             uint32_t init_max_draw_cmds) {
     ZoneScoped;
+    std::lock_guard<std::mutex> lock(mtx_);
     draw_cmd_allocator.Init(size_bytes, alignment);
 
     quad_gpu_buf = tvk::Allocator::Get().CreateBuffer(
@@ -363,6 +372,7 @@ struct VertexPool {
   }
 
   void FreeMesh(uint32_t handle) {
+    std::lock_guard<std::mutex> lock(mtx_);
     EASSERT(draw_cmds_count > 0);
     draw_cmds_count--;
     draw_cmd_allocator.Free(handle);
@@ -370,6 +380,7 @@ struct VertexPool {
 
   uint32_t AddMesh(size_t copy_idx, UserT user_data) {
     ZoneScoped;
+    std::lock_guard<std::mutex> lock(mtx_);
     // fmt::println("ADD MESH copy_idx {}", copy_idx);
     VkBufferCopy copy;
     vertex_staging.AddInUseCopy(copy_idx);
@@ -384,6 +395,7 @@ struct VertexPool {
 
   void ExecuteCopy(VkCommandBuffer cmd) {
     ZoneScoped;
+    std::lock_guard<std::mutex> lock(mtx_);
     vkCmdCopyBuffer(cmd, vertex_staging.Staging().buffer, quad_gpu_buf.buffer, copies.size(),
                     copies.data());
     copies.clear();

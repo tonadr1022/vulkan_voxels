@@ -57,10 +57,7 @@ struct Settings {
 } settings;
 
 std::unique_ptr<VoxelWorld> world;
-void RestartWorld() {
-  world->Reset();
-  world->GenerateWorld(*CVarSystem::Get().GetIntCVar("world.initial_load_radius"));
-}
+void RestartWorld() { world->Reset(); }
 void InitWorld() {
   if (world) {
     world->Shutdown();
@@ -233,6 +230,7 @@ void DrawImGui(double dt) {
 
 void Update(double dt) {
   ZoneScoped;
+  // world->Update();
   static double t = 0;
   t += dt;
   if (t > (1 / 120.f)) {
@@ -271,7 +269,7 @@ int main() {
                                              "World Update Sleep Time MS", 1);
   auto f = std::thread([]() {
     while (!should_quit) {
-      // world->Update();
+      world->Update();
       std::this_thread::sleep_for(std::chrono::milliseconds(world_update_sleep_time.Get()));
     }
   });
@@ -296,7 +294,6 @@ int main() {
     if (fake_delay.Get() > 0.0000001f) {
       std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<int>(fake_delay.Get())));
     }
-    world->Update();
     Update(dt);
 
     if (draw_imgui) {

@@ -651,8 +651,9 @@ void Renderer::WaitForMainRenderFence() {
 
 bool Renderer::UpdateSwapchainAndCheckIfReady() {
   glm::uvec2 dims = window_->UpdateWindowSize();
-  auto status = UpdateSwapchain(swapchain_, chosen_gpu_, device_, surface_, graphics_queue_family_,
-                                dims.x, dims.y, swapchain_.image_format, Settings::vsync.Get());
+  auto status =
+      UpdateSwapchain(swapchain_, chosen_gpu_, device_, surface_, graphics_queue_family_, dims.x,
+                      dims.y, swapchain_.image_format, Settings::vsync.Get(), resize_req_);
   if (status == SwapchainStatus::Resized || !draw_image_.image) {
     MakeSwapchainImageViews();
     LoadDrawImages();
@@ -676,6 +677,9 @@ bool Renderer::AcquireNextImage() {
   VkResult acquire_next_img_result =
       vkAcquireNextImageKHR(device_, swapchain_.swapchain, timeout,
                             GetCurrentFrame().swapchain_semaphore, nullptr, &swapchain_img_idx_);
+  if (acquire_next_img_result == VK_ERROR_OUT_OF_DATE_KHR) {
+    resize_req_ = true;
+  }
   return acquire_next_img_result != VK_ERROR_OUT_OF_DATE_KHR;
 }
 void Renderer::Screenshot(const std::string& path) {

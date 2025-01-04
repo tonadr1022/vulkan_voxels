@@ -9,31 +9,36 @@ constexpr const int PCS = 64;
 constexpr const int PCS2 = PCS * PCS;
 constexpr const int PCS3 = PCS2 * PCS;
 
-template <i8vec3 Len>
-using Grid3Du8 = std::array<uint8_t, static_cast<std::size_t>(Len.x* Len.y* Len.z)>;
+template <int Len>
+using Grid3Du8 = std::array<uint8_t, static_cast<std::size_t>(Len* Len* Len)>;
 
-template <i8vec3 Len>
-using HeightMapFloats = std::array<float, static_cast<std::size_t>(Len.x* Len.z)>;
+// template <i8vec3 Len>
+using HeightMapFloats = std::array<float, static_cast<std::size_t>(PCS2)>;
 
-template <i8vec3 Len>
-using FloatArray3D = std::array<float, static_cast<std::size_t>(Len.x* Len.z* Len.y)>;
+template <int Len>
+using FloatArray3D = std::array<float, static_cast<std::size_t>(Len* Len* Len)>;
 
-template <i8vec3 Len>
-using HeightMapGrid = std::array<int, static_cast<std::size_t>(Len.x* Len.z)>;
+template <int Len>
+using HeightMapGrid = std::array<int, static_cast<std::size_t>(Len* Len)>;
 
-using ChunkPaddedHeightMapFloats = HeightMapFloats<i8vec3{PCS}>;
-using ChunkPaddedHeightMapGrid = HeightMapGrid<i8vec3{PCS}>;
+using ChunkPaddedHeightMapFloats = HeightMapFloats;
+using ChunkPaddedHeightMapGrid = HeightMapGrid<PCS>;
+
+struct HeightMapData {
+  ivec2 range;
+  HeightMapGrid<PCS> heights;
+};
 
 using OpaqueMask = std::array<uint64_t, PCS2>;
 
-template <i8vec3 Len>
+template <int Len>
 constexpr uint32_t XZY(int x, int y, int z) {
-  return x + (z * Len.x) + (y * Len.x * Len.z);
+  return x + (z * Len) + (y * Len * Len);
 }
 
-template <i8vec3 Len>
+template <int Len>
 constexpr uint32_t ZXY(int x, int y, int z) {
-  return z + (x * Len.z) + (y * Len.x * Len.z);
+  return z + (x * Len) + (y * Len * Len);
 }
 
 template <int Len>
@@ -41,20 +46,20 @@ constexpr uint32_t XYZ(int x, int y, int z) {
   return x + (y * Len) + (z * Len * Len);
 }
 
-template <i8vec3 Len>
+template <int Len>
 inline void SetXZY(Grid3Du8<Len>& grid, int x, int y, int z, uint8_t value) {
   grid[XZY<Len>(x, y, z)] = value;
 }
-template <i8vec3 Len>
+template <int Len>
 inline uint8_t GetXZY(const Grid3Du8<Len>& grid, int x, int y, int z) {
   return grid[XZY<Len>(x, y, z)];
 }
-template <i8vec3 Len>
+template <int Len>
 inline void SetZXY(Grid3Du8<Len>& grid, int x, int y, int z, uint8_t value) {
   grid[ZXY<Len>(x, y, z)] = value;
 }
 
-template <i8vec3 Len>
+template <int Len>
 inline uint8_t GetZXY(const Grid3Du8<Len>& grid, int x, int y, int z) {
   return grid[ZXY<Len>(x, y, z)];
 }

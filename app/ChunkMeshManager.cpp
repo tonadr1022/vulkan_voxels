@@ -107,10 +107,10 @@ ChunkMeshManager& ChunkMeshManager::Get() {
 void ChunkMeshManager::Update() {
   ZoneScopedN("ChunkMeshManager Update");
   if (chunk_quad_buffer_.copies.size()) {
-    transfers_.emplace_back(renderer_->TransferSubmitAsync([this](VkCommandBuffer cmd) {
-      // TracyVkZone(renderer_->graphics_queue_ctx_, cmd, "Copy");
-      chunk_quad_buffer_.ExecuteCopy(cmd);
-    }));
+    // transfers_.emplace_back(renderer_->TransferSubmitAsync(
+    //     [this](VkCommandBuffer cmd) { chunk_quad_buffer_.ExecuteCopy(cmd); }));
+    renderer_->ImmediateSubmit(
+        [this](VkCommandBuffer cmd) { chunk_quad_buffer_.ExecuteCopy(cmd); });
     // transfers_.emplace_back(renderer_->TransferSubmitAsync(
     //     [this](VkCommandBuffer cmd) { chunk_quad_buffer_.ExecuteCopy(cmd); }));
   }
