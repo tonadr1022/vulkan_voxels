@@ -78,11 +78,11 @@ void FillChunk(PaddedChunkGrid3D& grid, [[maybe_unused]] ivec3 chunk_start,
     return;
   }
   static_assert(std::is_invocable_v<Func, int, int, int>, "Func not invocable");
+
   for (int y = 0; y < PaddedChunkGrid3D::Dims.y; y++) {
+    int i = 0;
     for (int z = 0; z < PaddedChunkGrid3D::Dims.z; z++) {
-      for (int x = 0; x < PaddedChunkGrid3D::Dims.x; x++) {
-        const int col_start = x * PaddedChunkGrid3D::Dims.z;
-        const int i = col_start + z;
+      for (int x = 0; x < PaddedChunkGrid3D::Dims.x; x++, i++) {
         if (y < (height_data.heights[i] - chunk_start.y)) {
           grid.Set(x, y, z, func(x, y, z));
         }
@@ -90,6 +90,7 @@ void FillChunk(PaddedChunkGrid3D& grid, [[maybe_unused]] ivec3 chunk_start,
     }
   }
 }
+
 template <typename Func>
 void FillChunk(PaddedChunkGrid3D& grid, [[maybe_unused]] ivec3 chunk_start,
                std::span<const int> heights, Func&& func) {

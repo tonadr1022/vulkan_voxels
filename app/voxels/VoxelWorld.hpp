@@ -41,7 +41,7 @@ struct MeshTaskResponse {
 
 struct TerrainGenTask {
   uint32_t chunk_handle;
-  HeightMapData* height_map;
+  // HeightMapData* height_map;
 };
 
 struct TerrainGenResponse {
@@ -96,7 +96,7 @@ struct VoxelWorld {
   std::vector<ivec3> to_gen_terrain_tasks_;
 
   std::vector<ChunkMeshUpload> chunk_mesh_uploads_;
-  TerrainGenResponse ProcessTerrainTask(TerrainGenTask& task);
+  TerrainGenResponse ProcessTerrainTask(const TerrainGenTask& task);
   MeshTaskResponse ProcessMeshTask(MeshTaskResponse& task);
   int seed_ = 1;
 
@@ -120,6 +120,6 @@ struct VoxelWorld {
 
   void ResetInternal();
   std::mutex reset_mtx_;
-  bool reset_req_{false};
+  std::atomic<bool> reset_req_{false};
   bool initalized_{false};
 };

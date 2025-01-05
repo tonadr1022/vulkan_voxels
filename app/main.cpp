@@ -266,11 +266,11 @@ int main() {
 
   std::condition_variable cv;
   static AutoCVarInt world_update_sleep_time("world.update_sleep_time",
-                                             "World Update Sleep Time MS", 1);
+                                             "World Update Sleep Time MS", 100);
   auto f = std::thread([]() {
     while (!should_quit) {
       world->Update();
-      std::this_thread::sleep_for(std::chrono::milliseconds(world_update_sleep_time.Get()));
+      std::this_thread::sleep_for(std::chrono::nanoseconds(world_update_sleep_time.Get()));
     }
   });
 

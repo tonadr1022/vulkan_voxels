@@ -29,7 +29,7 @@ class ChunkMeshManager {
   void Init(VoxelRenderer* renderer);
   void DrawImGuiStats() const;
   void Cleanup();
-  [[nodiscard]] uint32_t CopyChunkToStaging(std::span<uint64_t> data);
+  [[nodiscard]] uint32_t CopyChunkToStaging(uint64_t* data, uint32_t cnt);
   void UploadChunkMeshes(std::span<ChunkMeshUpload> uploads, std::span<ChunkAllocHandle> handles);
   void FreeMeshes(std::span<ChunkAllocHandle> handles);
   void Update();
@@ -39,10 +39,13 @@ class ChunkMeshManager {
   static constexpr const uint32_t MaxDrawCmds{256 * 256 * 10};
   static constexpr const uint32_t QuadSize = sizeof(uint64_t);
 
+  [[nodiscard]] size_t QuadCount() const { return quad_count_; }
+
  private:
   friend struct VoxelRenderer;
   VoxelRenderer* renderer_{};
 
+  size_t quad_count_{};
   std::vector<AsyncTransfer> transfers_;
   VertexPool<ChunkDrawUniformData> chunk_quad_buffer_;
   tvk::AllocatedBuffer quad_index_buf_;

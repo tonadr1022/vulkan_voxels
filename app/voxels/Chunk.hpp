@@ -8,8 +8,8 @@ struct PaddedChunkGrid3D {
   PaddedChunkMask mask;
   static constexpr i8vec3 Dims = i8vec3{PCS};
   void Set(int x, int y, int z, uint8_t val) {
-    mask.SetXZY(x, y, z, val);
-    grid.SetXZY(x, y, z, val);
+    mask.SetZXY(x, y, z, val);
+    grid.SetZXY(x, y, z, val);
   }
   void Clear() {
     memset(mask.mask.data(), 0, sizeof(mask));

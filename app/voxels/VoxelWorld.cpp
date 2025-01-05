@@ -14,12 +14,12 @@
 #include "voxels/Types.hpp"
 
 namespace {
-AutoCVarInt terrain_gen_chunks_y("world.terrain_gen_chunks_y", "Num chunks Y", 10);
+AutoCVarInt terrain_gen_chunks_y("world.terrain_gen_chunks_y", "Num chunks Y", 5);
 AutoCVarFloat freq("world.terrain_freq", "Freq", 0.001);
 }  // namespace
 void VoxelWorld::Init() {
-  max_terrain_tasks_ = 70;
-  max_mesh_tasks_ = 70;
+  max_terrain_tasks_ = 16;
+  max_mesh_tasks_ = 16;
 
   // TODO: refactor the counts here
   mesh_alg_pool_.Init(max_mesh_tasks_);
@@ -35,9 +35,10 @@ void VoxelWorld::GenerateWorld(int radius) {
   ZoneScoped;
   fmt::println("generating world: radius {}", radius);
   ivec3 iter;
-  for (iter.x = -radius; iter.x <= radius; iter.x++) {
-    for (iter.z = -radius; iter.z <= radius; iter.z++) {
-      for (iter.y = 0; iter.y < terrain_gen_chunks_y.Get(); iter.y++) {
+  int y = terrain_gen_chunks_y.Get();
+  for (iter.y = 0; iter.y < y; iter.y++) {
+    for (iter.x = -radius; iter.x <= radius; iter.x++) {
+      for (iter.z = -radius; iter.z <= radius; iter.z++) {
         // TODO: use queue?
         to_gen_terrain_tasks_.emplace_back(iter);
         world_gen_chunk_payload_++;
@@ -48,19 +49,17 @@ void VoxelWorld::GenerateWorld(int radius) {
 }
 
 void VoxelWorld::Update() {
-  {
-    std::lock_guard<std::mutex> lock(height_map_mtx_);
-    if (reset_req_) {
-      reset_req_ = false;
-      ResetInternal();
-      GenerateWorld(*CVarSystem::Get().GetIntCVar("world.initial_load_radius"));
-    }
+  ZoneScoped;
+  // std::lock_guard<std::mutex> lock(height_map_mtx_);
+  if (reset_req_) {
+    reset_req_ = false;
+    ResetInternal();
+    GenerateWorld(*CVarSystem::Get().GetIntCVar("world.initial_load_radius"));
   }
   stats_.max_terrain_done_size =
       std::max(stats_.max_terrain_done_size, terrain_tasks_.done_tasks.size_approx());
   stats_.max_pool_size = std::max(stats_.max_pool_size, mesher_output_data_pool_.Size());
   stats_.max_pool_size2 = std::max(stats_.max_pool_size2, mesh_alg_pool_.allocs);
-  ZoneScoped;
   if (tot_chunks_loaded != prev_world_start_finished_chunks_ &&
       tot_chunks_loaded == world_gen_chunk_payload_) {
     world_load_time_ = world_start_timer_.ElapsedMS();
@@ -90,14 +89,11 @@ void VoxelWorld::Update() {
   }
   {
     ZoneScopedN("dispatch mesh tasks");
-    static std::vector<MeshTaskResponse> mesh_tasks_to_dispatch;
-    mesh_tasks_to_dispatch.clear();
     while (mesh_tasks_.in_flight < max_mesh_tasks_ && mesh_tasks_.to_complete.size()) {
       MeshTaskResponse response;
 
       response.chunk_handle = mesh_tasks_.to_complete.front().chunk_handle;
       auto& chunk = *chunk_pool_.Get(response.chunk_handle);
-      // all set blocks in the padded chunk have no need for mesh
       if (chunk.grid.mask.AllSet()) {
         mesh_tasks_.to_complete.pop();
         tot_chunks_loaded++;
@@ -107,13 +103,11 @@ void VoxelWorld::Update() {
       response.output_data_handle = mesher_output_data_pool_.Alloc();
 
       mesh_tasks_.to_complete.pop();
-      mesh_tasks_to_dispatch.emplace_back(response);
+      thread_pool.detach_task([this, response]() mutable {
+        mesh_tasks_.done_tasks.enqueue(ProcessMeshTask(response));
+      });
+      mesh_tasks_.in_flight++;
     }
-    for (auto t : mesh_tasks_to_dispatch) {
-      thread_pool.detach_task(
-          [t, this]() mutable { mesh_tasks_.done_tasks.enqueue(ProcessMeshTask(t)); });
-    }
-    mesh_tasks_.in_flight += mesh_tasks_to_dispatch.size();
   }
 
   {
@@ -123,15 +117,16 @@ void VoxelWorld::Update() {
       to_gen_terrain_tasks_.pop_back();
       auto chunk_handle = chunk_pool_.Alloc();
       auto* chunk = chunk_pool_.Get(chunk_handle);
-      // chunk->grid = {};
       EASSERT(chunk);
       chunk->pos = pos;
-      auto* height_map = GetHeightMap(chunk->pos.x, chunk->pos.z);
-      TerrainGenTask terrain_task{chunk_handle, height_map};
+      TerrainGenTask terrain_task{chunk_handle};
       terrain_tasks_.in_flight++;
-      thread_pool.detach_task([terrain_task, this]() mutable {
-        terrain_tasks_.done_tasks.enqueue(ProcessTerrainTask(terrain_task));
-      });
+      {
+        ZoneScopedN("detatch");
+        thread_pool.detach_task([terrain_task, this]() {
+          terrain_tasks_.done_tasks.enqueue(ProcessTerrainTask(terrain_task));
+        });
+      }
     }
   }
 
@@ -170,7 +165,7 @@ void VoxelWorld::Update() {
   }
 }
 
-TerrainGenResponse VoxelWorld::ProcessTerrainTask(TerrainGenTask& task) {
+TerrainGenResponse VoxelWorld::ProcessTerrainTask(const TerrainGenTask& task) {
   ZoneScoped;
   // ChunkPaddedHeightMapGrid heights;
   // FloatArray3D<i8vec3{PCS}> white_noise_floats;
@@ -186,10 +181,14 @@ TerrainGenResponse VoxelWorld::ProcessTerrainTask(TerrainGenTask& task) {
     ZoneScopedN("Clear gird");
     chunk->grid.Clear();
   }
+  auto* height_map = GetHeightMap(chunk->pos.x, chunk->pos.z);
   // noise.FillNoise2D(height_map_floats, ivec2{chunk->pos.x, chunk->pos.z} * CS, uvec2{PCS}, m);
   // gen::NoiseToHeights(height_map_floats, heights,
   //                     {0, (((terrain_gen_chunks_y.Get() * CS / m) - 1))});
-  gen::FillChunk(chunk->grid, chunk->pos * CS, *task.height_map, [](int, int, int) { return 128; });
+  gen::FillChunk(chunk->grid, chunk->pos * CS, *height_map, [](int, int, int) {
+    // return (rand() % 255) + 1;
+    return 128;
+  });
 
   // gen::NoiseToHeights(height_map_floats, heights, {0, terrain_gen_chunks_y.Get() * CS});
   // int i = 0;
@@ -218,7 +217,8 @@ MeshTaskResponse VoxelWorld::ProcessMeshTask(MeshTaskResponse& task) {
   GenerateMesh(chunk.grid.grid.grid, *alg_data, *data);
   if (data->vertices.size()) {
     // fmt::println("s {}", data->vertices.size());
-    task.staging_copy_idx = ChunkMeshManager::Get().CopyChunkToStaging(data->vertices);
+    task.staging_copy_idx =
+        ChunkMeshManager::Get().CopyChunkToStaging(data->vertices.data(), data->vertex_cnt);
     // fmt::println("task.staging_copy_idx {}", task.staging_copy_idx);
   }
   return task;
@@ -235,6 +235,7 @@ void VoxelWorld::DrawImGuiStats() const {
     ImGui::Text("mesh tasks in flight: %ld", mesh_tasks_.in_flight);
     ImGui::TreePop();
   }
+  ImGui::Text("Quad count: %ld", ChunkMeshManager::Get().QuadCount());
   ImGui::Text("done: %d", tot_chunks_loaded);
   ImGui::Text("tot chunks: %d", world_gen_chunk_payload_);
   ImGui::Text("Final world load time: %f", world_load_time_);
@@ -258,10 +259,7 @@ void VoxelWorld::ResetInternal() {
   mesh_handles_.clear();
   ResetPools();
 }
-void VoxelWorld::Reset() {
-  std::lock_guard<std::mutex> lock(height_map_mtx_);
-  reset_req_ = true;
-}
+void VoxelWorld::Reset() { reset_req_ = true; }
 
 void VoxelWorld::ResetPools() {
   chunk_pool_.ClearNoDealloc();
@@ -279,6 +277,7 @@ void VoxelWorld::ResetPools() {
 HeightMapData* VoxelWorld::GetHeightMap(int x, int y) {
   ZoneScoped;
   {
+    std::lock_guard<std::mutex> lock(height_map_mtx_);
     auto it = height_map_pool_idx_cache_.find({x, y});
     if (it != height_map_pool_idx_cache_.end()) {
       return height_map_pool_.Get(it->second);
@@ -286,7 +285,7 @@ HeightMapData* VoxelWorld::GetHeightMap(int x, int y) {
   }
   uint32_t idx;
   {
-    // std::lock_guard<std::mutex> lock(height_map_mtx_);
+    std::lock_guard<std::mutex> lock(height_map_mtx_);
     idx = height_map_pool_.Alloc();
   }
   ChunkPaddedHeightMapFloats height_map_floats;
@@ -297,7 +296,7 @@ HeightMapData* VoxelWorld::GetHeightMap(int x, int y) {
                       {0, (terrain_gen_chunks_y.Get() * CS * 0.5) - 1});
 
   {
-    // std::lock_guard<std::mutex> lock(height_map_mtx_);
+    std::lock_guard<std::mutex> lock(height_map_mtx_);
     height_map_pool_idx_cache_.emplace(std::make_pair(x, y), idx);
   }
   return height_map;

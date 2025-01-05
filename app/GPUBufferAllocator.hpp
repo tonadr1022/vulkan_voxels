@@ -2,7 +2,6 @@
 
 #include <vulkan/vulkan_core.h>
 
-#include <span>
 #include <tracy/Tracy.hpp>
 
 #include "DeletionQueue.hpp"
@@ -118,22 +117,27 @@ class DynamicBuffer {
     return new_alloc.handle;
   }
 
-  void Free(uint32_t handle) {
+  // returns number of bytes freed
+  uint32_t Free(uint32_t handle) {
     ZoneScoped;
-    if (handle == 0) return;
+    EASSERT(handle != 0);
+    if (handle == 0) return 0;
     auto it = allocs_.end();
     for (it = allocs_.begin(); it != allocs_.end(); it++) {
       if (it->handle == handle) break;
     }
     if (it == allocs_.end()) {
-      return;
+      EASSERT(0 && "Alloc not found");
+      return 0;
     }
 
     it->handle = 0;
+    uint32_t ret = it->size_bytes;
     Coalesce(it);
 
     free_handles_.emplace_back(handle);
     --num_active_allocs_;
+    return ret;
   }
 
   [[nodiscard]] uint32_t NumActiveAllocs() const { return num_active_allocs_; }
@@ -205,17 +209,18 @@ struct TSVertexUploadRingBuffer {
     ring_buf_.Init(size);
   }
 
-  [[nodiscard]] uint32_t Copy(std::span<T> data) {
+  [[nodiscard]] uint32_t Copy(T* data, uint32_t cnt) {
     ZoneScoped;
-    EASSERT(data.size());
+    EASSERT(data && cnt > 0);
     size_t offset;
+    size_t alloc_size_bytes = cnt * sizeof(T);
     {
       ZoneScopedN("acquire offset in copy");
       std::lock_guard<std::mutex> lock(mtx);
-      offset = ring_buf_.Allocate(data.size_bytes());
+      offset = ring_buf_.Allocate(alloc_size_bytes);
     }
     auto* start = reinterpret_cast<unsigned char*>(staging_.data);
-    memcpy(start + offset, data.data(), data.size_bytes());
+    memcpy(start + offset, data, alloc_size_bytes);
 
     uint32_t copy_idx;
     {
@@ -230,7 +235,7 @@ struct TSVertexUploadRingBuffer {
       }
     }
 
-    copies_[copy_idx] = Block{.offset = offset, .size = data.size_bytes()};
+    copies_[copy_idx] = Block{.offset = offset, .size = alloc_size_bytes};
     return copy_idx;
   }
 
@@ -382,11 +387,12 @@ struct VertexPool {
     vertex_staging.Init(sizeof(uint64_t) * 100 * 10000);
   }
 
-  void FreeMesh(uint32_t handle) {
+  // returns num bytes freed
+  uint32_t FreeMesh(uint32_t handle) {
     std::lock_guard<std::mutex> lock(mtx_);
     EASSERT(draw_cmds_count > 0);
     draw_cmds_count--;
-    draw_cmd_allocator.Free(handle);
+    return draw_cmd_allocator.Free(handle);
   }
 
   uint32_t AddMesh(size_t copy_idx, UserT user_data) {

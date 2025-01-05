@@ -77,7 +77,7 @@ void ChunkMeshManager::Init(VoxelRenderer* renderer) {
 
 void ChunkMeshManager::FreeMeshes(std::span<ChunkAllocHandle> handles) {
   for (auto& h : handles) {
-    chunk_quad_buffer_.FreeMesh(h);
+    quad_count_ -= chunk_quad_buffer_.FreeMesh(h) / sizeof(QuadSize);
   }
 }
 
@@ -91,6 +91,7 @@ void ChunkMeshManager::UploadChunkMeshes(std::span<ChunkMeshUpload> uploads,
     int mult = *CVarSystem::Get().GetIntCVar("chunks.chunk_mult");
     d.position = ivec4(pos, mult << 3);
     for (int i = 0; i < 6; i++) {
+      quad_count_ += counts[i];
       d.vertex_counts[i] = counts[i];
     }
     ChunkAllocHandle handle = chunk_quad_buffer_.AddMesh(staging_copy_idx, d);
@@ -109,25 +110,29 @@ void ChunkMeshManager::Update() {
   if (chunk_quad_buffer_.copies.size()) {
     // transfers_.emplace_back(renderer_->TransferSubmitAsync(
     //     [this](VkCommandBuffer cmd) { chunk_quad_buffer_.ExecuteCopy(cmd); }));
-    renderer_->TransferSubmit([this](VkCommandBuffer cmd) { chunk_quad_buffer_.ExecuteCopy(cmd); });
-    // transfers_.emplace_back(renderer_->TransferSubmitAsync(
-    //     [this](VkCommandBuffer cmd) { chunk_quad_buffer_.ExecuteCopy(cmd); }));
+
+    // renderer_->TransferSubmit([this](VkCommandBuffer cmd) { chunk_quad_buffer_.ExecuteCopy(cmd);
+    // });
+
+    transfers_.emplace_back(renderer_->TransferSubmitAsync(
+        [this](VkCommandBuffer cmd) { chunk_quad_buffer_.ExecuteCopy(cmd); }));
   }
-  // for (auto it = transfers_.begin(); it != transfers_.end();) {
-  //   auto& transfer = *it;
-  //   auto status = vkGetFenceStatus(renderer_->device_, transfer.fence);
-  //   EASSERT(status != VK_ERROR_DEVICE_LOST);
-  //   if (status == VK_ERROR_DEVICE_LOST) {
-  //     fmt::println("failed!");
-  //     exit(1);
-  //   }
-  //   if (status == VK_SUCCESS) {
-  //     renderer_->fence_pool_.AddFreeFence(transfer.fence);
-  //     it = transfers_.erase(it);
-  //   } else {
-  //     it++;
-  //   }
-  // }
+  for (auto it = transfers_.begin(); it != transfers_.end();) {
+    auto& transfer = *it;
+    auto status = vkGetFenceStatus(renderer_->device_, transfer.fence);
+    EASSERT(status != VK_ERROR_DEVICE_LOST);
+    if (status == VK_ERROR_DEVICE_LOST) {
+      fmt::println("failed!");
+      exit(1);
+    }
+    if (status == VK_SUCCESS) {
+      renderer_->fence_pool_.AddFreeFence(transfer.fence);
+      it = transfers_.erase(it);
+    } else {
+      // fmt::println("fence wait");
+      it++;
+    }
+  }
 }
 
 void ChunkMeshManager::DrawImGuiStats() const {
@@ -154,6 +159,6 @@ void ChunkMeshManager::CopyDrawBuffers() {
   //     [this](VkCommandBuffer cmd) { chunk_quad_buffer_.CopyDrawsStagingToGPU(cmd); });
 }
 
-uint32_t ChunkMeshManager::CopyChunkToStaging(std::span<uint64_t> data) {
-  return chunk_quad_buffer_.vertex_staging.Copy(data);
+uint32_t ChunkMeshManager::CopyChunkToStaging(uint64_t* data, uint32_t cnt) {
+  return chunk_quad_buffer_.vertex_staging.Copy(data, cnt);
 }

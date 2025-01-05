@@ -134,6 +134,7 @@ void GenerateMesh(std::span<uint8_t> voxels, MeshAlgData& alg_data, MesherOutput
                                 mesh_length, mesh_width, type);
           }
 
+          mesh_data.vertex_cnt++;
           InsertQuad(mesh_data.vertices, quad, i_vertex, alg_data.max_vertices);
         }
       }
@@ -204,6 +205,7 @@ void GenerateMesh(std::span<uint8_t> voxels, MeshAlgData& alg_data, MesherOutput
           const uint64_t quad = EncodeQuad(mesh_left + (face == 4 ? mesh_width : 0), mesh_front,
                                            mesh_up, mesh_width, mesh_length, type);
 
+          mesh_data.vertex_cnt++;
           InsertQuad(mesh_data.vertices, quad, i_vertex, alg_data.max_vertices);
         }
       }
@@ -214,6 +216,5 @@ void GenerateMesh(std::span<uint8_t> voxels, MeshAlgData& alg_data, MesherOutput
     alg_data.face_vertex_lengths[face] = face_vertex_length;
   }
 
-  mesh_data.vertex_cnt = mesh_data.vertices.size();
   mesh_data.mesh_time = t.ElapsedMicro();
 }

@@ -5,10 +5,14 @@ struct PtrObjPool {
   void Init(uint32_t size) {
     data.resize(size);
     free_list.resize(size);
+    for (auto& i : data) {
+      i = std::make_unique<T>();
+    }
     InitInternal();
   }
 
   uint32_t Alloc() {
+    ZoneScoped;
     if (free_list.empty()) {
       fmt::println("Resizing pool, new size: {}", data.size() * 1.5);
       auto old_size = data.size();
