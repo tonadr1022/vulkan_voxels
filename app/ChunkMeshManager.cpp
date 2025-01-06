@@ -2,6 +2,7 @@
 
 #include <vulkan/vulkan_core.h>
 
+#include <cstddef>
 #include <tracy/TracyVulkan.hpp>
 
 #include "Error.hpp"
@@ -30,7 +31,8 @@ void ChunkMeshManager::Cleanup() {
 
 void ChunkMeshManager::Init(VoxelRenderer* renderer) {
   renderer_ = renderer;
-  chunk_quad_buffer_.Init(MaxQuads, QuadSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, MaxDrawCmds);
+  chunk_quad_buffer_.Init(MaxQuads, sizeof(uint8_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                          MaxDrawCmds);
   chunk_uniform_gpu_buf_ = tvk::Allocator::Get().CreateBuffer(
       MaxDrawCmds * sizeof(ChunkUniformData), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
       VMA_MEMORY_USAGE_GPU_ONLY);
@@ -91,6 +93,7 @@ void ChunkMeshManager::UploadChunkMeshes(std::span<ChunkMeshUpload> uploads,
     int mult = *CVarSystem::Get().GetIntCVar("chunks.chunk_mult");
     d.position = ivec4(pos, mult << 3);
     for (int i = 0; i < 6; i++) {
+      // fmt::println("cnt {}, i {}", counts[i], i);
       quad_count_ += counts[i];
       d.vertex_counts[i] = counts[i];
     }
@@ -111,28 +114,27 @@ void ChunkMeshManager::Update() {
     // transfers_.emplace_back(renderer_->TransferSubmitAsync(
     //     [this](VkCommandBuffer cmd) { chunk_quad_buffer_.ExecuteCopy(cmd); }));
 
-    // renderer_->TransferSubmit([this](VkCommandBuffer cmd) { chunk_quad_buffer_.ExecuteCopy(cmd);
-    // });
+    renderer_->TransferSubmit([this](VkCommandBuffer cmd) { chunk_quad_buffer_.ExecuteCopy(cmd); });
 
-    transfers_.emplace_back(renderer_->TransferSubmitAsync(
-        [this](VkCommandBuffer cmd) { chunk_quad_buffer_.ExecuteCopy(cmd); }));
+    // transfers_.emplace_back(renderer_->TransferSubmitAsync(
+    //     [this](VkCommandBuffer cmd) { chunk_quad_buffer_.ExecuteCopy(cmd); }));
   }
-  for (auto it = transfers_.begin(); it != transfers_.end();) {
-    auto& transfer = *it;
-    auto status = vkGetFenceStatus(renderer_->device_, transfer.fence);
-    EASSERT(status != VK_ERROR_DEVICE_LOST);
-    if (status == VK_ERROR_DEVICE_LOST) {
-      fmt::println("failed!");
-      exit(1);
-    }
-    if (status == VK_SUCCESS) {
-      renderer_->fence_pool_.AddFreeFence(transfer.fence);
-      it = transfers_.erase(it);
-    } else {
-      // fmt::println("fence wait");
-      it++;
-    }
-  }
+  // for (auto it = transfers_.begin(); it != transfers_.end();) {
+  //   auto& transfer = *it;
+  //   auto status = vkGetFenceStatus(renderer_->device_, transfer.fence);
+  //   EASSERT(status != VK_ERROR_DEVICE_LOST);
+  //   if (status == VK_ERROR_DEVICE_LOST) {
+  //     fmt::println("failed!");
+  //     exit(1);
+  //   }
+  //   if (status == VK_SUCCESS) {
+  //     renderer_->fence_pool_.AddFreeFence(transfer.fence);
+  //     it = transfers_.erase(it);
+  //   } else {
+  //     // fmt::println("fence wait");
+  //     it++;
+  //   }
+  // }
 }
 
 void ChunkMeshManager::DrawImGuiStats() const {
@@ -159,6 +161,49 @@ void ChunkMeshManager::CopyDrawBuffers() {
   //     [this](VkCommandBuffer cmd) { chunk_quad_buffer_.CopyDrawsStagingToGPU(cmd); });
 }
 
-uint32_t ChunkMeshManager::CopyChunkToStaging(uint64_t* data, uint32_t cnt) {
-  return chunk_quad_buffer_.vertex_staging.Copy(data, cnt);
+template <typename T>
+void DumpBits(T d, size_t size = sizeof(T)) {
+  static_assert(std::is_integral_v<T>, "T must be an integral type.");
+  for (int i = static_cast<int>(size) - 1; i >= 0; i--) {
+    fmt::print("{}", ((d & (static_cast<T>(1) << i)) ? 1 : 0));
+  }
+  fmt::println("");
+}
+
+#include <cstdint>
+#include <iomanip>
+#include <iostream>
+
+void dumpHex(const uint8_t* array, size_t size) {
+  for (size_t i = 0; i < size; ++i) {
+    std::cout << std::hex << std::setfill('0') << std::setw(2) << static_cast<int>(array[i]) << " ";
+    // Add formatting for readability if needed
+    if ((i + 1) % 16 == 0) std::cout << std::endl;  // Newline every 16 bytes
+  }
+  std::cout << std::endl;  // Final newline
+}
+
+uint32_t ChunkMeshManager::CopyChunkToStaging(uint8_t* data, uint32_t quad_cnt) {
+  // dumpHex(data, static_cast<size_t>(quad_cnt * 5ul));
+  // for (uint32_t i = 0; i < quad_cnt; i++) {
+  //   fmt::println("quad");
+  //   for (int j = 4; j >= 0; j--) {
+  //     for (int k = 0; k < 8; k++) {
+  //       fmt::print("{}", (data[i * 5 + j] & (1 << k)) >> k);
+  //     }
+  //     fmt::println("");
+  //   }
+  //   fmt::println("");
+  //   // fmt::print("{}", data[i] );
+  //   // fmt::print("{}", data[i]);
+  //   // fmt::print("{}", data[i]);
+  //   // fmt::print("{}", data[i]);
+  //   // fmt::print("{}", data[i]);
+  //   // fmt::print("{}", data[i]);
+  //   // fmt::print("{}", data[i]);
+  //   // fmt::print("{}", data[i]);
+  //   // fmt::print("{}", data[i]);
+  //   // DumpBits(data[i]);
+  // }
+  return chunk_quad_buffer_.vertex_staging.Copy(data, quad_cnt * QuadSize);
 }

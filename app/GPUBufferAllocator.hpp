@@ -293,7 +293,7 @@ struct VertexPool {
   tvk::AllocatedBuffer draw_cmd_gpu_buf{};
   tvk::AllocatedBuffer draw_count_buffer{};
   size_t draw_cmds_count{};
-  TSVertexUploadRingBuffer<uint64_t> vertex_staging;
+  TSVertexUploadRingBuffer<uint8_t> vertex_staging;
   std::vector<VkBufferCopy> copies;
   size_t curr_copies_tot_size_bytes{};
 

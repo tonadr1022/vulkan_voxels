@@ -526,6 +526,8 @@ void Renderer::InitVulkan() {
   features13.dynamicRendering = VK_TRUE;
   features13.synchronization2 = VK_TRUE;
   features12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+  features12.uniformAndStorageBuffer8BitAccess = VK_TRUE;
+  features12.shaderInt8 = VK_TRUE;
   features12.bufferDeviceAddress = VK_TRUE;
   features12.drawIndirectCount = VK_TRUE;
   VkPhysicalDeviceFeatures features{};

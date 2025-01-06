@@ -16,7 +16,7 @@ struct MeshAlgData {
 };
 
 struct MesherOutputData {
-  std::vector<uint64_t> vertices;
+  std::vector<uint8_t> vertices;
   int vertex_cnt{};
   float mesh_time;
 };

@@ -38,8 +38,8 @@ void main() {
     vec3 L = normalize(-scene_data.sun_dir.xyz);
     float NdotL = max(dot(in_normal, L), 0.0);
     vec3 diffuse = NdotL * diffuse_color;
-    uvec3 col = DecompressRGB(material);
-    // uvec3 col = uvec3(material);
+    //uvec3 col = DecompressRGB(material);
+    uvec3 col = uvec3(material);
     vec3 mat_color = vec3(col) / 255.0;
     out_frag_color = vec4(diffuse + mat_color, 1.0);
     return;

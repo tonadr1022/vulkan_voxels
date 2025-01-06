@@ -77,7 +77,7 @@ bool BackFaceCull(vec3 chunk_center, uint face, float chunk_size, ivec3 chunk_po
     return visible || cam_chunk_y == chunk_pos.y;
 }
 
-#define VERTEX_SIZE 8
+#define VERTEX_SIZE 5
 #define SINGLE_TRIANGLE_QUAD
 
 void main() {
@@ -108,6 +108,13 @@ void main() {
         if (size_bytes == 0) continue;
 
         bool visible = !backface_cull_enabled || BackFaceCull(chunk_center, i, chunk_size, info.pos.xyz);
+
+        /*
+                if (i != 0) {
+                    offset += size_bytes;
+                    continue;
+                }
+                */
 
         if (!freeze_cull && visible) {
             uint insert_idx = atomicAdd(next_idx, 1);

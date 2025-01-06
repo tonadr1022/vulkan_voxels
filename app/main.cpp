@@ -47,7 +47,7 @@ struct Settings {
   void Load([[maybe_unused]] const std::string& path) {
     loader::Load(path, *this);
     auto& sys = CVarSystem::Get();
-    sys.CreateIntCVar("world.initial_load_radius", "initial load radius of world", radius, radius);
+    sys.CreateIntCVar("world.initial_load_radius", "initial load radius of world", radius, 20);
   }
   void Save(const std::string& path) {
     auto& sys = CVarSystem::Get();
@@ -257,7 +257,9 @@ int main() {
   renderer.Init(&window);
   InitWorld();
 
-  main_cam.position = vec3(-700, 2250, -600);
+  // main_cam.position = vec3(0, 60, -25);
+  main_cam.position = vec3(-2500, 2500, -2500);
+  // main_cam.position = vec3(-700, 2250, -600);
   // main_cam.position = vec3(0, 0, 2);
   main_cam.LookAt({0, 0, 0});
 
@@ -266,7 +268,7 @@ int main() {
 
   std::condition_variable cv;
   static AutoCVarInt world_update_sleep_time("world.update_sleep_time",
-                                             "World Update Sleep Time MS", 100);
+                                             "World Update Sleep Time MS", 1000);
   auto f = std::thread([]() {
     while (!should_quit) {
       world->Update();

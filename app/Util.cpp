@@ -31,4 +31,5 @@ std::string GetScreenshotPath(std::string_view filename, bool include_timestamp)
   return full_path;
 }
 
+size_t Align(size_t value, size_t alignment) { return (value + alignment - 1) & ~(alignment - 1); }
 }  // namespace util

@@ -1,6 +1,8 @@
 #version 460
 
 #extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_shader_8bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
 #include "../scene_data.h.glsl"
 
 #define SINGLE_TRIANGLE_QUADS
@@ -11,8 +13,21 @@ struct QuadData {
 };
 
 layout(set = 1, binding = 0) readonly buffer ssbo1 {
-    QuadData data[];
+    uint data[];
 } quads;
+
+uint safeShiftLeft(uint value, uint shiftAmount) {
+    uint mask = (shiftAmount - 32u) >> 31u;
+    return (value << (shiftAmount & 31u)) & -mask;
+}
+uvec2 UnpackQuad(uint quadIndex) {
+    uint bitOffset = quadIndex * 40;
+    uint wordOffset = bitOffset >> 5;
+    uint bitStart = (bitOffset & 31u);
+    uint lower = quads.data[wordOffset];
+    uint upper = quads.data[wordOffset + 1];
+    return uvec2((lower >> bitStart) | safeShiftLeft(upper, 32 - bitStart), (upper >> (bitStart)) & 0xFF);
+}
 
 struct UniformData {
     ivec4 pos;
@@ -53,8 +68,9 @@ vec4 GetVertexPos() {
     // get quad idx
     uint quad_idx = gl_VertexIndex >> 2u;
 
-    uint data1 = quads.data[quad_idx].data1;
-    uint data2 = quads.data[quad_idx].data2;
+    uvec2 data = UnpackQuad(quad_idx);
+    uint data1 = data.x;
+    uint data2 = data.y;
 
     // unpack quad position in the chunk
     ivec3 i_vertex_pos = ivec3(data1 & 63u, (data1 >> 6u) & 63u, (data1 >> 12u) & 63u) * chunk_mult;

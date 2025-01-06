@@ -2,7 +2,6 @@
 
 #include <vulkan/vulkan_core.h>
 
-#include <list>
 #include <span>
 
 #include "GPUBufferAllocator.hpp"
@@ -29,15 +28,15 @@ class ChunkMeshManager {
   void Init(VoxelRenderer* renderer);
   void DrawImGuiStats() const;
   void Cleanup();
-  [[nodiscard]] uint32_t CopyChunkToStaging(uint64_t* data, uint32_t cnt);
+  [[nodiscard]] uint32_t CopyChunkToStaging(uint8_t* data, uint32_t cnt);
   void UploadChunkMeshes(std::span<ChunkMeshUpload> uploads, std::span<ChunkAllocHandle> handles);
   void FreeMeshes(std::span<ChunkAllocHandle> handles);
   void Update();
   void CopyDrawBuffers();
 
   static constexpr const uint32_t MaxQuads{1000000000};
-  static constexpr const uint32_t MaxDrawCmds{256 * 256 * 10};
-  static constexpr const uint32_t QuadSize = sizeof(uint64_t);
+  static constexpr const uint32_t MaxDrawCmds{256 * 256 * 6};
+  static constexpr const uint32_t QuadSize = sizeof(uint8_t) * 5;
 
   [[nodiscard]] size_t QuadCount() const { return quad_count_; }
 

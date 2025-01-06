@@ -14,7 +14,7 @@
 #include "voxels/Types.hpp"
 
 namespace {
-AutoCVarInt terrain_gen_chunks_y("world.terrain_gen_chunks_y", "Num chunks Y", 5);
+AutoCVarInt terrain_gen_chunks_y("world.terrain_gen_chunks_y", "Num chunks Y", 10);
 AutoCVarFloat freq("world.terrain_freq", "Freq", 0.001);
 }  // namespace
 void VoxelWorld::Init() {
@@ -181,15 +181,21 @@ TerrainGenResponse VoxelWorld::ProcessTerrainTask(const TerrainGenTask& task) {
     ZoneScopedN("Clear gird");
     chunk->grid.Clear();
   }
-  auto* height_map = GetHeightMap(chunk->pos.x, chunk->pos.z);
   // noise.FillNoise2D(height_map_floats, ivec2{chunk->pos.x, chunk->pos.z} * CS, uvec2{PCS}, m);
   // gen::NoiseToHeights(height_map_floats, heights,
   //                     {0, (((terrain_gen_chunks_y.Get() * CS / m) - 1))});
+  auto* height_map = GetHeightMap(chunk->pos.x, chunk->pos.z);
   gen::FillChunk(chunk->grid, chunk->pos * CS, *height_map, [](int, int, int) {
     // return (rand() % 255) + 1;
     return 128;
   });
-
+  // for (int z = 2; z < 4; z++) {
+  //   for (int y = 2; y < 4; y++) {
+  //     for (int x = 2; x < 4; x++) {
+  //       chunk->grid.Set(x, y, z, 128);
+  //     }
+  //   }
+  // }
   // gen::NoiseToHeights(height_map_floats, heights, {0, terrain_gen_chunks_y.Get() * CS});
   // int i = 0;
   // gen::FillSphere<i8vec3{PCS}>(chunk->grid, [&i, &white_noise_floats]() {
@@ -216,7 +222,6 @@ MeshTaskResponse VoxelWorld::ProcessMeshTask(MeshTaskResponse& task) {
   auto* data = mesher_output_data_pool_.Get(task.output_data_handle);
   GenerateMesh(chunk.grid.grid.grid, *alg_data, *data);
   if (data->vertices.size()) {
-    // fmt::println("s {}", data->vertices.size());
     task.staging_copy_idx =
         ChunkMeshManager::Get().CopyChunkToStaging(data->vertices.data(), data->vertex_cnt);
     // fmt::println("task.staging_copy_idx {}", task.staging_copy_idx);
