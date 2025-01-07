@@ -656,6 +656,7 @@ bool Renderer::UpdateSwapchainAndCheckIfReady() {
   auto status =
       UpdateSwapchain(swapchain_, chosen_gpu_, device_, surface_, graphics_queue_family_, dims.x,
                       dims.y, swapchain_.image_format, Settings::vsync.Get(), resize_req_);
+  resize_req_ = false;
   if (status == SwapchainStatus::Resized || !draw_image_.image) {
     MakeSwapchainImageViews();
     LoadDrawImages();

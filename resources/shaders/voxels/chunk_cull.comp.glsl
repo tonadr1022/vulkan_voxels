@@ -68,13 +68,11 @@ bool CullFrustum(vec4 pos, float radius) {
     return cull(plane0) && cull(plane1) && cull(plane2) && cull(plane3) && cull(plane4) && cull(plane5);
 }
 
-bool BackFaceCull(vec3 chunk_center, uint face, float chunk_size, ivec3 chunk_pos) {
-    int cam_chunk_y = int(floor(cam_pos.y / chunk_size));
+bool ChunkBackFaceCull(vec3 chunk_center, uint face, float chunk_size) {
     vec3 face_normal = normal_lookup[face];
-    vec3 face_center = CalculateFaceCenter(chunk_center, face_normal, chunk_size);
-    vec3 cam_to_face = face_center - cam_pos.xyz;
-    bool visible = dot(cam_to_face, face_normal) < 0.0;
-    return visible || cam_chunk_y == chunk_pos.y;
+    vec3 face_pos = chunk_center - 0.5 * (chunk_size * face_normal);
+    vec3 cam_to_face = face_pos - cam_pos.xyz;
+    return dot(cam_to_face, face_normal) < 0.0;
 }
 
 #define VERTEX_SIZE 5
@@ -95,7 +93,6 @@ void main() {
     uint offset = info.vertex_offset;
     const bool freeze_cull = bool(bits.x & 0x4);
     if (freeze_cull) return;
-    const bool backface_cull_enabled = !freeze_cull && bool(bits.x & 0x1);
     const bool frustum_cull_enabled = !freeze_cull && bool(bits.x & 0x2);
     if (frustum_cull_enabled) {
         vec4 pos = vec4(chunk_center - cam_pos.xyz, 1.0);
@@ -107,14 +104,7 @@ void main() {
         uint size_bytes = info.vertex_counts[i] * VERTEX_SIZE;
         if (size_bytes == 0) continue;
 
-        bool visible = !backface_cull_enabled || BackFaceCull(chunk_center, i, chunk_size, info.pos.xyz);
-
-        /*
-                if (i != 0) {
-                    offset += size_bytes;
-                    continue;
-                }
-                */
+        bool visible = ChunkBackFaceCull(chunk_center, i, chunk_size);
 
         if (!freeze_cull && visible) {
             uint insert_idx = atomicAdd(next_idx, 1);

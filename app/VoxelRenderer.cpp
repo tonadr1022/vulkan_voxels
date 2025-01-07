@@ -318,7 +318,7 @@ void VoxelRenderer::DrawChunks(VkDescriptorSet scene_data_set, VkCommandBuffer c
                        VK_INDEX_TYPE_UINT32);
   vkCmdDrawIndexedIndirectCount(cmd, mgr.chunk_quad_buffer_.draw_cmd_gpu_buf.buffer, 0,
                                 mgr.chunk_quad_buffer_.draw_count_buffer.buffer, 0,
-                                mgr.chunk_quad_buffer_.draw_cmds_count * 6,
+                                mgr.chunk_quad_buffer_.draw_cmds_count * 3,
                                 sizeof(VkDrawIndexedIndirectCommand));
 }
 
@@ -330,9 +330,6 @@ void VoxelRenderer::PrepareAndCullChunks(VkCommandBuffer cmd) {
   // https://github.com/SaschaWillems/Vulkan/blob/master/examples/computecullandlod/computecullandlod.cpp
   static AutoCVarInt frustum_cull("chunks.frustum_cull", "GPU Frustum Cull Enabled", 1,
                                   CVarFlags::EditCheckbox);
-  static AutoCVarInt backface_cull("chunks.back_face_cull",
-                                   "Cull entire chunk faces based on camera view", 0,
-                                   CVarFlags::EditCheckbox);
   static AutoCVarInt freeze_cull("chunks.freeze_cull", "Pause Culling", 0, CVarFlags::EditCheckbox);
 
   auto& chunk_vert_pool = ChunkMeshManager::Get().chunk_quad_buffer_;
@@ -412,7 +409,6 @@ void VoxelRenderer::PrepareAndCullChunks(VkCommandBuffer cmd) {
         frustum[4],
         frustum[5],
         uvec4{0}};
-  pc.bits.x |= (backface_cull.Get() != 0) << 0;
   pc.bits.x |= (frustum_cull.Get() != 0) << 1;
   pc.bits.x |= (freeze_cull.Get() != 0) << 2;
 

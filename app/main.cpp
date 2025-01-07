@@ -47,7 +47,7 @@ struct Settings {
   void Load([[maybe_unused]] const std::string& path) {
     loader::Load(path, *this);
     auto& sys = CVarSystem::Get();
-    sys.CreateIntCVar("world.initial_load_radius", "initial load radius of world", radius, 20);
+    sys.CreateIntCVar("world.initial_load_radius", "initial load radius of world", radius, 5);
   }
   void Save(const std::string& path) {
     auto& sys = CVarSystem::Get();
@@ -258,7 +258,8 @@ int main() {
   InitWorld();
 
   // main_cam.position = vec3(0, 60, -25);
-  main_cam.position = vec3(-2500, 2500, -2500);
+  // main_cam.position = vec3(-2500, 2500, -2500);
+  main_cam.position = vec3(-100, 250, -100);
   // main_cam.position = vec3(-700, 2250, -600);
   // main_cam.position = vec3(0, 0, 2);
   main_cam.LookAt({0, 0, 0});
