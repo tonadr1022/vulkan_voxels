@@ -12,11 +12,15 @@ struct MeshAlgData {
   std::array<int, 6> face_vertices_start_indices{};
   std::array<int, 6> face_vertex_lengths{};
   PaddedChunkMask* mask{};
-  int max_vertices{};
 };
 
 struct MesherOutputData {
-  std::vector<uint8_t> vertices;
+#ifdef PACK_QUAD
+  using VertexVec = std::vector<uint8_t>;
+#else
+  using VertexVec = std::vector<uint64_t>;
+#endif
+  VertexVec vertices;
   int vertex_cnt{};
   float mesh_time;
 };

@@ -1,0 +1,150 @@
+#pragma once
+
+#include <cstdint>
+#include <queue>
+
+#include "voxels/Terrain.hpp"
+
+template <typename NodeT>
+struct NodeList {
+  std::vector<uint32_t> free_list;
+  std::vector<NodeT> nodes;
+  uint32_t AllocNode() {
+    if (!free_list.empty()) {
+      auto idx = free_list.back();
+      free_list.pop_back();
+      nodes[idx] = {};
+      return idx;
+    }
+    uint32_t h = free_list.size();
+    nodes.emplace_back(NodeT{});
+    return h;
+  }
+
+  NodeT* Get(uint32_t idx) {
+    EASSERT(idx < nodes.size());
+    return &nodes[idx];
+  }
+
+  // TODO: destructor?
+  void Free(uint32_t idx) {
+    free_list.emplace_back(idx);
+    nodes[idx] = {};
+  }
+};
+
+struct MeshOctree {
+  struct Node {
+    static constexpr std::array<uint32_t, 8> Mask = {1 << 0, 1 << 1, 1 << 2, 1 << 3,
+                                                     1 << 4, 1 << 5, 1 << 6, 1 << 7};
+    [[nodiscard]] bool IsLeaf(uint8_t child) const { return leaf_mask & Mask[child]; }
+    void SetChild(uint8_t child, uint32_t idx) {
+      leaf_mask &= ~Mask[child];
+      data[child] = idx;
+    }
+    void SetData(uint8_t child, uint32_t val) {
+      data[child] = val;
+      leaf_mask |= Mask[child];
+    }
+    void ClearChild(uint8_t child) {
+      data[child] = 0;
+      leaf_mask |= Mask[child];
+    }
+    void ClearAll() {
+      data.fill(0);
+      leaf_mask = UINT8_MAX;
+    }
+    std::array<uint32_t, 8> data;
+    uint8_t leaf_mask;
+    bool has_noise{false};
+  };
+
+  void Init() {
+    noise.Init(1, 0.005, 4);
+    nodes[0].AllocNode();
+  }
+  // TODO: memory pool
+  struct NodeStackItem {
+    Node* node;
+    vec3 pos;
+    int depth;
+  };
+  static constexpr int MaxDepth = 5;
+  std::queue<NodeStackItem> node_stack;
+  std::array<int, MaxDepth> lod_bounds;
+
+  void Update(vec3 cam_pos) {
+    node_stack.emplace(nodes[0].Get(0), vec3{0}, 0);
+    int i = 0;
+    for (auto& b : lod_bounds) {
+      b = i;
+      i += CS;
+    }
+    for (auto b : lod_bounds) {
+      fmt::println("b {}", b);
+    }
+    while (node_stack.size()) {
+      auto [node, pos, depth] = node_stack.back();
+      node_stack.pop();
+      if (glm::distance(pos, cam_pos) > lod_bounds[depth]) {
+        // too far away, don't split it up.
+
+        // if has meshes or terrain, destroy it
+      } else {
+        // close enough to split up
+
+        // if no mesh or terrain, make it
+      }
+    }
+  }
+  void GenerateMesh(uvec3 pos, uint8_t) {
+    int scale = 1;
+    HeightMapFloats heights;
+    noise.FillNoise2D<PCS>(heights, uvec2{(pos.x * CS / scale) - 1, (pos.y * CS / scale) - 1});
+  }
+
+  std::array<NodeList<Node>, MaxDepth> nodes;
+  gen::FBMNoise noise;
+};
+
+using VoxelData = uint8_t;
+
+struct OctreeNode {
+  std::array<uint32_t, 8> data;
+  uint8_t leaf_mask;
+  [[nodiscard]] bool IsLeaf(uint8_t child) const { return leaf_mask & Mask[child]; }
+  void SetChild(uint8_t child, uint32_t idx) {
+    leaf_mask &= ~Mask[child];
+    data[child] = idx;
+  }
+  void SetData(uint8_t child, uint32_t val) {
+    data[child] = val;
+    leaf_mask |= Mask[child];
+  }
+  void ClearChild(uint8_t child) {
+    data[child] = 0;
+    leaf_mask |= Mask[child];
+  }
+  void ClearAll() {
+    data.fill(0);
+    leaf_mask = UINT8_MAX;
+  }
+  static constexpr std::array<uint32_t, 8> Mask = {1 << 0, 1 << 1, 1 << 2, 1 << 3,
+                                                   1 << 4, 1 << 5, 1 << 6, 1 << 7};
+};
+
+// LOD 0 is the coarsest
+struct Octree {
+  using Node = OctreeNode;
+
+  void Init();
+
+  void SetVoxel(uvec3 pos, uint32_t depth, VoxelData val);
+  uint32_t GetVoxel(uvec3 pos);
+
+  constexpr static uint64_t MaxDepth = 5;
+
+ private:
+  void FreeChildNodes(uint32_t node_idx, uint32_t depth);
+  std::array<NodeList<Node>, MaxDepth> nodes_;
+};

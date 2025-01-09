@@ -17,3 +17,8 @@ struct PaddedChunkGrid3D {
   }
   [[nodiscard]] bool ValidateBitmask() const;
 };
+
+struct Chunk {
+  PaddedChunkGrid3D grid;
+  ivec3 pos;
+};

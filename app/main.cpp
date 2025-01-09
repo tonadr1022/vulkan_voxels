@@ -24,6 +24,12 @@
 #include "voxels/Mesher.hpp"
 #include "voxels/VoxelWorld.hpp"
 
+// #define OCTREE_TEST
+
+#ifdef OCTREE_TEST
+#include "voxels/Octree.hpp"
+#endif
+
 namespace {
 
 namespace loader {
@@ -40,6 +46,7 @@ void Save(const std::string& path, const T& data) {
   std::ofstream file(path, std::ios::binary);
   file.write(reinterpret_cast<const char*>(&data), sizeof(T));
 }
+
 }  // namespace loader
 
 struct Settings {
@@ -47,7 +54,7 @@ struct Settings {
   void Load([[maybe_unused]] const std::string& path) {
     loader::Load(path, *this);
     auto& sys = CVarSystem::Get();
-    sys.CreateIntCVar("world.initial_load_radius", "initial load radius of world", radius, 5);
+    sys.CreateIntCVar("world.initial_load_radius", "initial load radius of world", radius, radius);
   }
   void Save(const std::string& path) {
     auto& sys = CVarSystem::Get();
@@ -205,7 +212,9 @@ struct Stats {
 void DrawImGui(double dt) {
   if (ImGui::Begin("Voxel Renderer")) {
     if (ImGui::CollapsingHeader("Stats", ImGuiTreeNodeFlags_DefaultOpen)) {
-      world->DrawImGuiStats();
+      if (world) {
+        world->DrawImGuiStats();
+      }
       stats.DrawImGui(dt);
       if (ImGui::TreeNodeEx("Chunk Stats", ImGuiTreeNodeFlags_DefaultOpen)) {
         ChunkMeshManager::Get().DrawImGuiStats();
@@ -219,6 +228,7 @@ void DrawImGui(double dt) {
       renderer.DrawImGui();
     }
     if (ImGui::CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen)) {
+      ImGui::InputFloat3("Pos", &main_cam.position.x);
       ImGui::Text("Position %f %f %f", main_cam.position.x, main_cam.position.y,
                   main_cam.position.z);
       auto dir = main_cam.front;
@@ -255,13 +265,12 @@ int main() {
 
   window.Init("Voxel Renderer", 1700, 900);
   renderer.Init(&window);
-  InitWorld();
 
   // main_cam.position = vec3(0, 60, -25);
   // main_cam.position = vec3(-2500, 2500, -2500);
   main_cam.position = vec3(-100, 250, -100);
   // main_cam.position = vec3(-700, 2250, -600);
-  // main_cam.position = vec3(0, 0, 2);
+  main_cam.position = vec3(0, 0, 2);
   main_cam.LookAt({0, 0, 0});
 
   Timer timer;
@@ -270,12 +279,19 @@ int main() {
   std::condition_variable cv;
   static AutoCVarInt world_update_sleep_time("world.update_sleep_time",
                                              "World Update Sleep Time MS", 1000);
+#ifdef OCTREE_TEST
+  MeshOctree oct;
+  oct.Init();
+  oct.Update({});
+#else
+  InitWorld();
   auto f = std::thread([]() {
     while (!should_quit) {
       world->Update();
       std::this_thread::sleep_for(std::chrono::nanoseconds(world_update_sleep_time.Get()));
     }
   });
+#endif
 
   while (!should_quit) {
     ZoneScopedN("Frame");
@@ -327,7 +343,10 @@ int main() {
     // }
     stats.frame_time = dt;
   }
+#ifndef OCTREE_TEST
   f.join();
+#endif
+
   renderer.Cleanup();
   settings.Save(settings_path);
 }

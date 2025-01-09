@@ -4,8 +4,7 @@
 #extension GL_EXT_shader_8bit_storage : require
 #extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
 #include "../scene_data.h.glsl"
-
-#define SINGLE_TRIANGLE_QUADS
+#include "../common.h.glsl"
 
 struct QuadData {
     uint data1;
@@ -13,10 +12,15 @@ struct QuadData {
 };
 
 layout(set = 1, binding = 0) readonly buffer ssbo1 {
+    #ifdef PACK_QUAD
     uint data[];
+    #else
+    QuadData data[];
+    #endif
 } quads;
 
-uint safeShiftLeft(uint value, uint shiftAmount) {
+#ifdef PACK_QUAD
+uint SafeShiftLeft(uint value, uint shiftAmount) {
     uint mask = (shiftAmount - 32u) >> 31u;
     return (value << (shiftAmount & 31u)) & -mask;
 }
@@ -26,8 +30,15 @@ uvec2 UnpackQuad(uint quadIndex) {
     uint bitStart = (bitOffset & 31u);
     uint lower = quads.data[wordOffset];
     uint upper = quads.data[wordOffset + 1];
-    return uvec2((lower >> bitStart) | safeShiftLeft(upper, 32 - bitStart), (upper >> (bitStart)) & 0xFF);
+    // need to safe shift left so shifting by 32 sets to 0 instead of doing nothing
+    return uvec2((lower >> bitStart) | SafeShiftLeft(upper, 32 - bitStart), (upper >> (bitStart)) & 0xFF);
 }
+#else
+uvec2 UnpackQuad(uint quadIndex) {
+    QuadData d = quads.data[quadIndex];
+    return uvec2(d.data1, d.data2);
+}
+#endif
 
 struct UniformData {
     ivec4 pos;
@@ -41,7 +52,7 @@ layout(location = 0) out vec3 out_pos;
 layout(location = 1) out vec3 out_normal;
 layout(location = 2) out uint out_material;
 
-#ifdef SINGLE_TRIANGLE_QUADS
+#ifdef SINGLE_TRIANGLE_QUAD
 layout(location = 3) out vec2 out_uv;
 const vec2 uv_lookup[3] = vec2[3](vec2(0.0, 0.0), vec2(2.0, 0.0), vec2(0.0, 2.0));
 #endif
@@ -84,7 +95,7 @@ vec4 GetVertexPos() {
     int w_mod = vertex_id >> 1, h_mod = vertex_id & 1;
 
     // offset the vertex in correct direction length
-    #ifdef SINGLE_TRIANGLE_QUADS
+    #ifdef SINGLE_TRIANGLE_QUAD
     out_uv = uv_lookup[vertex_id];
     i_vertex_pos[w_dir] += (w * w_mod * flip_lookup[face]) * 2 * chunk_mult;
     i_vertex_pos[h_dir] += (h * h_mod) * 2 * chunk_mult;

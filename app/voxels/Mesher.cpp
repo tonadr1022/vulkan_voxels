@@ -1,30 +1,21 @@
 #include "Mesher.hpp"
 
-#include <cstddef>
-
 #include "application/Timer.hpp"
 
 // https://github.com/cgerikj/binary-greedy-meshing/tree/master
 
 namespace {
 
+inline int AxisIndex(const int axis, const int a, const int b, const int c) {
+  if (axis == 0) return b + (a * PCS) + (c * PCS2);
+  if (axis == 1) return b + (c * PCS) + (a * PCS2);
+  return c + (a * PCS) + (b * PCS2);
+}
+
+#ifdef PACK_QUAD
 struct Quad {
   uint8_t data[5];
 };
-// #define TEST
-//                data[4] data[3] data[2] data[1] data[0]
-//                data[4] = type
-//                          y:6  x:6
-inline void EncodeQuadTest(Quad& q, uint32_t) {
-  q.data[0] = 1;
-  q.data[1] = 0;
-  q.data[2] = 0;
-  q.data[3] = 0;
-  q.data[4] = 2;
-}
-// 0001 2000
-// 0012
-// 0x00 0x00 0x01 0x02
 inline void EncodeQuad(Quad& q, const uint64_t x, const uint64_t y, const uint64_t z,
                        const uint64_t w, const uint64_t h, const uint64_t type) {
   q.data[0] = static_cast<uint8_t>((x) | ((y) << 6));
@@ -33,30 +24,9 @@ inline void EncodeQuad(Quad& q, const uint64_t x, const uint64_t y, const uint64
   q.data[3] = static_cast<uint8_t>(w >> 6 | (h));
   q.data[4] = static_cast<uint8_t>(type);
 }
-inline uint64_t EncodeQuad(const uint64_t x, const uint64_t y, const uint64_t z, const uint64_t w,
-                           const uint64_t h, const uint64_t type) {
-  return (type << 32) | (h << 24) | (w << 18) | (z << 12) | (y << 6) | (x);
-}
-
-inline int AxisIndex(const int axis, const int a, const int b, const int c) {
-  if (axis == 0) return b + (a * PCS) + (c * PCS2);
-  if (axis == 1) return b + (c * PCS) + (a * PCS2);
-  return c + (a * PCS) + (b * PCS2);
-}
-
-inline void InsertQuad(std::vector<uint64_t>& vertices, uint64_t quad, int& i_vertex,
-                       int& vertex_capacity) {
-  if (i_vertex >= vertex_capacity - 6) {
-    vertex_capacity = std::max(1, vertex_capacity * 2);
-    vertices.reserve(static_cast<size_t>(vertex_capacity));
-  }
-  vertices[i_vertex++] = quad;
-}
-inline void InsertQuad(std::vector<uint8_t>& vertices, Quad& quad, int& i_vertex,
-                       int& vertex_capacity) {
-  if (i_vertex >= vertex_capacity - 6) {
-    vertex_capacity = std::max(1, vertex_capacity * 2);
-    vertices.reserve(static_cast<size_t>(vertex_capacity));
+inline void InsertQuad(std::vector<uint8_t>& vertices, Quad& quad, int& i_vertex) {
+  if (vertices.size() >= vertices.capacity() - 5) {
+    vertices.reserve(vertices.size() * 2);
   }
   vertices.emplace_back(quad.data[0]);
   vertices.emplace_back(quad.data[1]);
@@ -65,6 +35,16 @@ inline void InsertQuad(std::vector<uint8_t>& vertices, Quad& quad, int& i_vertex
   vertices.emplace_back(quad.data[4]);
   i_vertex++;
 }
+#else
+inline uint64_t EncodeQuad(const uint64_t x, const uint64_t y, const uint64_t z, const uint64_t w,
+                           const uint64_t h, const uint64_t type) {
+  return (type << 32) | (h << 24) | (w << 18) | (z << 12) | (y << 6) | (x);
+}
+inline void InsertQuad(std::vector<uint64_t>& vertices, uint64_t quad, int& i_vertex) {
+  vertices.emplace_back(quad);
+  i_vertex++;
+}
+#endif
 
 constexpr uint64_t PMask = ~(1ull << 63 | 1);
 }  // namespace
@@ -74,7 +54,6 @@ void GenerateMesh(std::span<uint8_t> voxels, MeshAlgData& alg_data, MesherOutput
   Timer t;
   mesh_data.vertex_cnt = 0;
   mesh_data.vertices.clear();
-  alg_data.max_vertices = 0;
   const auto& opaque_mask = alg_data.mask->mask;
   auto& forward_merged = alg_data.forward_merged;
   auto& right_merged = alg_data.right_merged;
@@ -149,17 +128,15 @@ void GenerateMesh(std::span<uint8_t> voxels, MeshAlgData& alg_data, MesherOutput
           }
           bits_here &= ~((1ull << (bit_pos + right_merged)) - 1);
 
-#ifndef TEST
           const uint8_t mesh_front = forward - forward_merged_ref;
           const uint8_t mesh_left = bit_pos;
           const uint8_t mesh_up = layer + (~face & 1);
           const uint8_t mesh_width = right_merged;
           const uint8_t mesh_length = forward_merged_ref + 1;
-#endif
           forward_merged_ref = 0;
           right_merged = 1;
 
-#ifndef TEST
+#ifdef PACK_QUAD
           Quad q;
           switch (face) {
             case 0:
@@ -172,12 +149,20 @@ void GenerateMesh(std::span<uint8_t> voxels, MeshAlgData& alg_data, MesherOutput
                          mesh_length, mesh_width, type);
           }
 #else
-          Quad q;
-          EncodeQuadTest(q, i_vertex);
+          uint64_t q;
+          switch (face) {
+            case 0:
+            case 1:
+              q = EncodeQuad(mesh_front + (face == 1 ? mesh_length : 0), mesh_up, mesh_left,
+                             mesh_length, mesh_width, type);
+              break;
+            default:
+              q = EncodeQuad(mesh_up, mesh_front + (face == 2 ? mesh_length : 0), mesh_left,
+                             mesh_length, mesh_width, type);
+          }
 #endif
-
           mesh_data.vertex_cnt++;
-          InsertQuad(mesh_data.vertices, q, i_vertex, alg_data.max_vertices);
+          InsertQuad(mesh_data.vertices, q, i_vertex);
         }
       }
     }
@@ -207,7 +192,7 @@ void GenerateMesh(std::span<uint8_t> voxels, MeshAlgData& alg_data, MesherOutput
         const int right_cs = right * CS;
 
         while (bits_here) {
-          unsigned long bit_pos;
+          uint64_t bit_pos;
 #ifdef _MSC_VER
           _BitScanForward64(&bitPos, bitsHere);
 #else
@@ -234,35 +219,30 @@ void GenerateMesh(std::span<uint8_t> voxels, MeshAlgData& alg_data, MesherOutput
             continue;
           }
 
-#ifndef TEST
           const uint8_t mesh_left = right - right_merged_ref;
           const uint8_t mesh_front = forward - forward_merged_ref;
           const uint8_t mesh_up = bit_pos - 1 + (~face & 1);
           const uint8_t mesh_width = 1 + right_merged_ref;
           const uint8_t mesh_length = 1 + forward_merged_ref;
-#endif
 
           forward_merged_ref = 0;
           right_merged_ref = 0;
 
-#ifndef TEST
+#ifdef PACK_QUAD
           Quad q;
           EncodeQuad(q, mesh_left + (face == 4 ? mesh_width : 0), mesh_front, mesh_up, mesh_width,
                      mesh_length, type);
 #else
-          Quad q;
-          EncodeQuadTest(q, i_vertex);
+          uint64_t q = EncodeQuad(mesh_left + (face == 4 ? mesh_width : 0), mesh_front, mesh_up,
+                                  mesh_width, mesh_length, type);
 #endif
-          // uint64_t q2 = EncodeQuad(mesh_left + (face == 4 ? mesh_width : 0), mesh_front, mesh_up,
-          //                          mesh_width, mesh_length, type);
 
           mesh_data.vertex_cnt++;
-          InsertQuad(mesh_data.vertices, q, i_vertex, alg_data.max_vertices);
+          InsertQuad(mesh_data.vertices, q, i_vertex);
         }
       }
     }
 
-    EASSERT(mesh_data.vertex_cnt == mesh_data.vertices.size() / 5);
     const int face_vertex_length = i_vertex - face_vertex_begin;
     alg_data.face_vertices_start_indices[face] = face_vertex_begin;
     alg_data.face_vertex_lengths[face] = face_vertex_length;

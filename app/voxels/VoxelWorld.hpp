@@ -11,22 +11,6 @@
 #include "voxels/Common.hpp"
 #include "voxels/Terrain.hpp"
 
-namespace std {
-template <>
-struct hash<std::pair<int, int>> {
-  std::size_t operator()(const std::pair<int, int>& pair) const {
-    std::size_t h1 = std::hash<int>{}(pair.first);
-    std::size_t h2 = std::hash<int>{}(pair.second);
-    return h1 ^ (h2 << 1);  // Combine hashes
-  }
-};
-}  // namespace std
-
-struct Chunk {
-  PaddedChunkGrid3D grid;
-  ivec3 pos;
-};
-
 struct MeshTaskEnqueue {
   uint32_t chunk_handle;
 };
@@ -120,6 +104,5 @@ struct VoxelWorld {
 
   void ResetInternal();
   std::mutex reset_mtx_;
-  std::atomic<bool> reset_req_{false};
   bool initalized_{false};
 };

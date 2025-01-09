@@ -1,5 +1,7 @@
 #pragma once
 
+#define PACK_QUAD
+
 constexpr const int CS = 62;
 constexpr const int HALFCS = CS >> 2;
 constexpr const int CS2 = CS * CS;
@@ -25,8 +27,8 @@ using ChunkPaddedHeightMapFloats = HeightMapFloats;
 using ChunkPaddedHeightMapGrid = HeightMapGrid<PCS>;
 
 struct HeightMapData {
-  ivec2 range;
   HeightMapGrid<PCS> heights;
+  ivec2 range;
 };
 
 using OpaqueMask = std::array<uint64_t, PCS2>;
@@ -63,3 +65,14 @@ template <int Len>
 inline uint8_t GetZXY(const Grid3Du8<Len>& grid, int x, int y, int z) {
   return grid[ZXY<Len>(x, y, z)];
 }
+
+namespace std {
+template <>
+struct hash<std::pair<int, int>> {
+  std::size_t operator()(const std::pair<int, int>& pair) const {
+    std::size_t h1 = std::hash<int>{}(pair.first);
+    std::size_t h2 = std::hash<int>{}(pair.second);
+    return h1 ^ (h2 << 1);  // Combine hashes
+  }
+};
+}  // namespace std

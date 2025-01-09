@@ -2,6 +2,8 @@
 
 #include <filesystem>
 
+#include "../application/Config.hpp"
+
 namespace tvk::util {
 
 namespace {
@@ -18,7 +20,7 @@ bool IsShaderInclude(const std::filesystem::path& path) {
 void CompileToSPIRV(const std::string& glslangValidator, const std::string& glsl_path,
                     const std::string& output_path) {
   std::string command = glslangValidator + " -V " + glsl_path + " -o " + output_path;
-#ifndef NDEBUG
+#ifdef SHADER_DEBUG_FLAGS
   command += " -gVS";
 #endif
   int result = std::system(command.c_str());

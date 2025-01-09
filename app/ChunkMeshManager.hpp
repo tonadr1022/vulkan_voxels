@@ -7,6 +7,7 @@
 #include "GPUBufferAllocator.hpp"
 #include "Types.hpp"
 #include "application/Renderer.hpp"
+#include "voxels/Common.hpp"
 #include "voxels/Types.hpp"
 
 struct StagingBufferPool;
@@ -28,7 +29,8 @@ class ChunkMeshManager {
   void Init(VoxelRenderer* renderer);
   void DrawImGuiStats() const;
   void Cleanup();
-  [[nodiscard]] uint32_t CopyChunkToStaging(uint8_t* data, uint32_t cnt);
+  [[nodiscard]] uint32_t CopyChunkToStaging(const uint8_t* data, uint32_t quad_cnt);
+  [[nodiscard]] uint32_t CopyChunkToStaging(const uint64_t* data, uint32_t quad_cnt);
   void UploadChunkMeshes(std::span<ChunkMeshUpload> uploads, std::span<ChunkAllocHandle> handles);
   void FreeMeshes(std::span<ChunkAllocHandle> handles);
   void Update();
@@ -36,7 +38,11 @@ class ChunkMeshManager {
 
   static constexpr const uint32_t MaxQuads{1000000000};
   static constexpr const uint32_t MaxDrawCmds{256 * 256 * 6};
+#ifdef PACK_QUAD
   static constexpr const uint32_t QuadSize = sizeof(uint8_t) * 5;
+#else
+  static constexpr const uint32_t QuadSize = sizeof(uint8_t) * 8;
+#endif
 
   [[nodiscard]] size_t QuadCount() const { return quad_count_; }
 
@@ -44,6 +50,7 @@ class ChunkMeshManager {
   friend struct VoxelRenderer;
   VoxelRenderer* renderer_{};
 
+  size_t face_draw_cmds_{};
   size_t quad_count_{};
   std::vector<AsyncTransfer> transfers_;
   VertexPool<ChunkDrawUniformData> chunk_quad_buffer_;

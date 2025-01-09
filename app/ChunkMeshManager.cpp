@@ -9,12 +9,11 @@
 #include "GPUBufferAllocator.hpp"
 #include "Resource.hpp"
 #include "VoxelRenderer.hpp"
-#include "application/CVar.hpp"
 #include "application/Renderer.hpp"
 #include "imgui.h"
 #include "voxels/Common.hpp"
 
-#define SINGLE_TRIANGLE_QUADS
+#define SINGLE_TRIANGLE_QUAD
 void ChunkMeshManager::Cleanup() {
   if (transfers_.size()) {
     std::vector<VkFence> fences;
@@ -31,8 +30,7 @@ void ChunkMeshManager::Cleanup() {
 
 void ChunkMeshManager::Init(VoxelRenderer* renderer) {
   renderer_ = renderer;
-  chunk_quad_buffer_.Init(MaxQuads, sizeof(uint8_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-                          MaxDrawCmds);
+  chunk_quad_buffer_.Init(MaxQuads, QuadSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, MaxDrawCmds);
   chunk_uniform_gpu_buf_ = tvk::Allocator::Get().CreateBuffer(
       MaxDrawCmds * sizeof(ChunkUniformData), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
       VMA_MEMORY_USAGE_GPU_ONLY);
@@ -42,7 +40,7 @@ void ChunkMeshManager::Init(VoxelRenderer* renderer) {
     chunk_quad_buffer_.Destroy();
   });
 
-#ifdef SINGLE_TRIANGLE_QUADS
+#ifdef SINGLE_TRIANGLE_QUAD
   constexpr int MaxQuadsPerChunk = CS3 * 3;
 #else
   constexpr int MaxQuadsPerChunk = CS3 * 6;
@@ -53,7 +51,7 @@ void ChunkMeshManager::Init(VoxelRenderer* renderer) {
     indices.push_back((i << 2) | 2u);
     indices.push_back((i << 2) | 0u);
     indices.push_back((i << 2) | 1u);
-#ifndef SINGLE_TRIANGLE_QUADS
+#ifndef SINGLE_TRIANGLE_QUAD
     indices.push_back((i << 2) | 1u);
     indices.push_back((i << 2) | 3u);
     indices.push_back((i << 2) | 2u);
@@ -86,21 +84,24 @@ void ChunkMeshManager::FreeMeshes(std::span<ChunkAllocHandle> handles) {
 void ChunkMeshManager::UploadChunkMeshes(std::span<ChunkMeshUpload> uploads,
                                          std::span<ChunkAllocHandle> handles) {
   ZoneScoped;
-  size_t tot_upload_size_bytes{0};
   size_t idx = 0;
-  for (const auto& [pos, counts, staging_copy_idx] : uploads) {
+  for (const auto& [pos, mult, counts, staging_copy_idx] : uploads) {
     ChunkDrawUniformData d{};
-    int mult = *CVarSystem::Get().GetIntCVar("chunks.chunk_mult");
+    // int mult = *CVarSystem::Get().GetIntCVar("chunks.chunk_mult");
     d.position = ivec4(pos, mult << 3);
+    int quad_cnt{};
     for (int i = 0; i < 6; i++) {
-      // fmt::println("cnt {}, i {}", counts[i], i);
-      quad_count_ += counts[i];
+      if (counts[i]) {
+        face_draw_cmds_++;
+      }
+      quad_cnt += counts[i];
       d.vertex_counts[i] = counts[i];
     }
     ChunkAllocHandle handle = chunk_quad_buffer_.AddMesh(staging_copy_idx, d);
     handles[idx++] = handle;
+    EASSERT(quad_cnt);
+    quad_count_ += quad_cnt;
   }
-  if (!tot_upload_size_bytes) return;
 }
 
 ChunkMeshManager& ChunkMeshManager::Get() {
@@ -139,6 +140,7 @@ void ChunkMeshManager::Update() {
 
 void ChunkMeshManager::DrawImGuiStats() const {
   ImGui::Text("Draw cmds: %ld", chunk_quad_buffer_.draw_cmds_count);
+  ImGui::Text("Draw cmds face: %ld", face_draw_cmds_);
   ImGui::Text("size %ld", sizeof(Allocation<ChunkDrawUniformData>));
 }
 
@@ -161,49 +163,16 @@ void ChunkMeshManager::CopyDrawBuffers() {
   //     [this](VkCommandBuffer cmd) { chunk_quad_buffer_.CopyDrawsStagingToGPU(cmd); });
 }
 
-template <typename T>
-void DumpBits(T d, size_t size = sizeof(T)) {
-  static_assert(std::is_integral_v<T>, "T must be an integral type.");
-  for (int i = static_cast<int>(size) - 1; i >= 0; i--) {
-    fmt::print("{}", ((d & (static_cast<T>(1) << i)) ? 1 : 0));
-  }
-  fmt::println("");
+uint32_t ChunkMeshManager::CopyChunkToStaging(const uint8_t* data, uint32_t quad_cnt) {
+#ifndef PACK_QUAD
+  EASSERT(0);
+#endif
+  return chunk_quad_buffer_.vertex_staging.Copy(data, quad_cnt * QuadSize);
 }
 
-#include <cstdint>
-#include <iomanip>
-#include <iostream>
-
-void dumpHex(const uint8_t* array, size_t size) {
-  for (size_t i = 0; i < size; ++i) {
-    std::cout << std::hex << std::setfill('0') << std::setw(2) << static_cast<int>(array[i]) << " ";
-    // Add formatting for readability if needed
-    if ((i + 1) % 16 == 0) std::cout << std::endl;  // Newline every 16 bytes
-  }
-  std::cout << std::endl;  // Final newline
-}
-
-uint32_t ChunkMeshManager::CopyChunkToStaging(uint8_t* data, uint32_t quad_cnt) {
-  // dumpHex(data, static_cast<size_t>(quad_cnt * 5ul));
-  // for (uint32_t i = 0; i < quad_cnt; i++) {
-  //   fmt::println("quad");
-  //   for (int j = 4; j >= 0; j--) {
-  //     for (int k = 0; k < 8; k++) {
-  //       fmt::print("{}", (data[i * 5 + j] & (1 << k)) >> k);
-  //     }
-  //     fmt::println("");
-  //   }
-  //   fmt::println("");
-  //   // fmt::print("{}", data[i] );
-  //   // fmt::print("{}", data[i]);
-  //   // fmt::print("{}", data[i]);
-  //   // fmt::print("{}", data[i]);
-  //   // fmt::print("{}", data[i]);
-  //   // fmt::print("{}", data[i]);
-  //   // fmt::print("{}", data[i]);
-  //   // fmt::print("{}", data[i]);
-  //   // fmt::print("{}", data[i]);
-  //   // DumpBits(data[i]);
-  // }
+uint32_t ChunkMeshManager::CopyChunkToStaging(const uint64_t* data, uint32_t quad_cnt) {
+#ifdef PACK_QUAD
+  EASSERT(0);
+#endif
   return chunk_quad_buffer_.vertex_staging.Copy(data, quad_cnt * QuadSize);
 }

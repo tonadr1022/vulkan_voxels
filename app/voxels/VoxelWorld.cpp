@@ -14,8 +14,8 @@
 #include "voxels/Types.hpp"
 
 namespace {
-AutoCVarInt terrain_gen_chunks_y("world.terrain_gen_chunks_y", "Num chunks Y", 10);
-AutoCVarFloat freq("world.terrain_freq", "Freq", 0.001);
+AutoCVarInt terrain_gen_chunks_y("world.terrain_gen_chunks_y", "Num chunks Y", 1);
+AutoCVarFloat freq("world.terrain_freq", "Freq", 0.002);
 }  // namespace
 void VoxelWorld::Init() {
   max_terrain_tasks_ = 16;
@@ -50,12 +50,7 @@ void VoxelWorld::GenerateWorld(int radius) {
 
 void VoxelWorld::Update() {
   ZoneScoped;
-  // std::lock_guard<std::mutex> lock(height_map_mtx_);
-  if (reset_req_) {
-    reset_req_ = false;
-    ResetInternal();
-    GenerateWorld(*CVarSystem::Get().GetIntCVar("world.initial_load_radius"));
-  }
+  std::lock_guard<std::mutex> lock(reset_mtx_);
   stats_.max_terrain_done_size =
       std::max(stats_.max_terrain_done_size, terrain_tasks_.done_tasks.size_approx());
   stats_.max_pool_size = std::max(stats_.max_pool_size, mesher_output_data_pool_.Size());
@@ -221,10 +216,10 @@ MeshTaskResponse VoxelWorld::ProcessMeshTask(MeshTaskResponse& task) {
   alg_data->mask = &chunk.grid.mask;
   auto* data = mesher_output_data_pool_.Get(task.output_data_handle);
   GenerateMesh(chunk.grid.grid.grid, *alg_data, *data);
-  if (data->vertices.size()) {
+
+  if (data->vertex_cnt) {
     task.staging_copy_idx =
         ChunkMeshManager::Get().CopyChunkToStaging(data->vertices.data(), data->vertex_cnt);
-    // fmt::println("task.staging_copy_idx {}", task.staging_copy_idx);
   }
   return task;
 }
@@ -240,7 +235,8 @@ void VoxelWorld::DrawImGuiStats() const {
     ImGui::Text("mesh tasks in flight: %ld", mesh_tasks_.in_flight);
     ImGui::TreePop();
   }
-  ImGui::Text("Quad count: %ld", ChunkMeshManager::Get().QuadCount());
+  ImGui::Text("Quad count: %ld, quad mem size: %ld mb", ChunkMeshManager::Get().QuadCount(),
+              ChunkMeshManager::Get().QuadCount() * ChunkMeshManager::QuadSize / 1024 / 1024);
   ImGui::Text("done: %d", tot_chunks_loaded);
   ImGui::Text("tot chunks: %d", world_gen_chunk_payload_);
   ImGui::Text("Final world load time: %f", world_load_time_);
@@ -264,7 +260,10 @@ void VoxelWorld::ResetInternal() {
   mesh_handles_.clear();
   ResetPools();
 }
-void VoxelWorld::Reset() { reset_req_ = true; }
+void VoxelWorld::Reset() {
+  ResetInternal();
+  GenerateWorld(*CVarSystem::Get().GetIntCVar("world.initial_load_radius"));
+}
 
 void VoxelWorld::ResetPools() {
   chunk_pool_.ClearNoDealloc();

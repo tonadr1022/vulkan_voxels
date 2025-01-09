@@ -2,6 +2,7 @@
 
 #extension GL_GOOGLE_include_directive : require
 #include "../scene_data.h.glsl"
+#include "../common.h.glsl"
 
 layout(location = 0) out vec4 out_frag_color;
 
@@ -9,8 +10,7 @@ layout(location = 0) in vec3 in_frag_pos;
 layout(location = 1) flat in vec3 in_normal;
 layout(location = 2) flat in uint material;
 // TODO: move the define out
-#define SINGLE_TRIANGLE_QUADS
-#ifdef SINGLE_TRIANGLE_QUADS
+#ifdef SINGLE_TRIANGLE_QUAD
 layout(location = 3) in vec2 uv;
 #endif
 
@@ -26,7 +26,7 @@ uvec3 DecompressRGB(uint compressed) {
 }
 
 void main() {
-    #ifdef SINGLE_TRIANGLE_QUADS
+    #ifdef SINGLE_TRIANGLE_QUAD
     if (uv.x > 1.0 || uv.y > 1.0) {
         discard;
     }

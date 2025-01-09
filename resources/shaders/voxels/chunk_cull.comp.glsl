@@ -2,6 +2,9 @@
 
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
+#extension GL_GOOGLE_include_directive : require
+#include "../common.h.glsl"
+
 struct DrawIndexedIndirectCmd {
     uint index_count;
     uint instance_count;
@@ -75,9 +78,6 @@ bool ChunkBackFaceCull(vec3 chunk_center, uint face, float chunk_size) {
     return dot(cam_to_face, face_normal) < 0.0;
 }
 
-#define VERTEX_SIZE 5
-#define SINGLE_TRIANGLE_QUAD
-
 void main() {
     uint g_id = gl_GlobalInvocationID.x;
     if (g_id >= in_draw_info.length()) return;
@@ -104,7 +104,13 @@ void main() {
         uint size_bytes = info.vertex_counts[i] * VERTEX_SIZE;
         if (size_bytes == 0) continue;
 
+        // if (info.pos.z != 78 || info.pos.y != 0) {
+        //     offset += size_bytes;
+        //     continue;
+        // }
+
         bool visible = ChunkBackFaceCull(chunk_center, i, chunk_size);
+        // visible = true;
 
         if (!freeze_cull && visible) {
             uint insert_idx = atomicAdd(next_idx, 1);

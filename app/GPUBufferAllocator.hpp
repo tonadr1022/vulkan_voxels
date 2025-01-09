@@ -89,7 +89,7 @@ class DynamicBuffer {
       }
       // if there isn't an allocation small enough, return 0, null handle
       if (smallest_free_alloc == allocs_.end()) {
-        assert(0 && "no space");
+        EASSERT(0 && "no space");
         return 0;
       }
     }
@@ -195,7 +195,6 @@ class DynamicBuffer {
   }
 };
 
-template <typename T>
 struct TSVertexUploadRingBuffer {
  private:
   struct Block {
@@ -209,11 +208,12 @@ struct TSVertexUploadRingBuffer {
     ring_buf_.Init(size);
   }
 
-  [[nodiscard]] uint32_t Copy(T* data, uint32_t cnt) {
+  template <typename T>
+  [[nodiscard]] uint32_t Copy(const T* data, uint32_t size_bytes) {
     ZoneScoped;
-    EASSERT(data && cnt > 0);
+    EASSERT(data && size_bytes > 0);
     size_t offset;
-    size_t alloc_size_bytes = cnt * sizeof(T);
+    size_t alloc_size_bytes = size_bytes;
     {
       ZoneScopedN("acquire offset in copy");
       std::lock_guard<std::mutex> lock(mtx);
@@ -255,13 +255,6 @@ struct TSVertexUploadRingBuffer {
     free_copy_indices_.insert(free_copy_indices_.end(), in_use_.begin(), in_use_.end());
     in_use_.clear();
   }
-  void Print() {
-    // std::lock_guard<std::mutex> lock(mtx);
-    // fmt::println("size: {}", copies_.size());
-    // for (const Block& c : copies_) {
-    //   fmt::println("{} {}", c.offset, c.size);
-    // }
-  }
 
   const tvk::AllocatedBuffer& Staging() { return staging_; }
 
@@ -269,6 +262,7 @@ struct TSVertexUploadRingBuffer {
     std::lock_guard<std::mutex> lock(mtx);
     tvk::Allocator::Get().DestroyBuffer(staging_);
   }
+
   void AddInUseCopy(uint32_t copy) {
     std::lock_guard<std::mutex> lock(mtx);
     in_use_.emplace_back(copy);
@@ -293,7 +287,8 @@ struct VertexPool {
   tvk::AllocatedBuffer draw_cmd_gpu_buf{};
   tvk::AllocatedBuffer draw_count_buffer{};
   size_t draw_cmds_count{};
-  TSVertexUploadRingBuffer<uint8_t> vertex_staging;
+  TSVertexUploadRingBuffer vertex_staging;
+  // TSVertexUploadRingBuffer<uint8_t> vertex_staging;
   std::vector<VkBufferCopy> copies;
   size_t curr_copies_tot_size_bytes{};
 
@@ -373,7 +368,6 @@ struct VertexPool {
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         VMA_MEMORY_USAGE_GPU_ONLY);
     draw_infos_staging = tvk::Allocator::Get().CreateStagingBuffer(draw_info_initial_size);
-
     draw_count_buffer = tvk::Allocator::Get().CreateBuffer(sizeof(uint32_t),
                                                            VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
                                                                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
@@ -404,6 +398,7 @@ struct VertexPool {
     vertex_staging.GetBlock(copy_idx, copy.srcOffset, copy.size);
     uint32_t dst_offset;
     auto handle = draw_cmd_allocator.Allocate(copy.size, dst_offset, user_data);
+
     copy.dstOffset = dst_offset;
     copies.emplace_back(copy);
     draw_cmds_count++;
