@@ -23,7 +23,7 @@ struct NodeList {
       nodes[idx] = {};
       return idx;
     }
-    uint32_t h = free_list.size();
+    uint32_t h = nodes.size();
     nodes.emplace_back(NodeT{});
     return h;
   }
@@ -68,7 +68,7 @@ struct MeshOctree {
 
   // TODO: memory pool
   struct NodeStackItem {
-    Node* node;
+    uint32_t node_handle;
     ivec3 pos;
     int depth;
   };
@@ -96,7 +96,7 @@ struct MeshOctree {
   vec3 ChunkPosToAbsPos(ivec3 chunk_pos) { return vec3{chunk_pos} * vec3{PCS}; }
 
   void Update(vec3 cam_pos) {
-    node_queue.emplace(nodes[0].Get(0), vec3{0}, 0);
+    node_queue.emplace(0, vec3{0}, 0);
     int i = std::pow(CS, MaxDepth - 1);
     for (auto& b : lod_bounds) {
       b = i;
@@ -104,8 +104,8 @@ struct MeshOctree {
       fmt::println("b {}", b);
     }
     while (node_queue.size()) {
-      auto [node, pos, depth] = node_queue.front();
-      EASSERT(node);
+      auto [node_handle, pos, depth] = node_queue.front();
+      Node* node = nodes[depth].Get(node_handle);
       node_queue.pop();
       auto it = height_maps.find(ivec3{pos.x, pos.z, depth});
       EASSERT(it != height_maps.end());
@@ -203,8 +203,7 @@ struct MeshOctree {
               // TODO: check if child exists!
               uint32_t new_node_handle = nodes[depth + 1].AllocNode();
               node->data[i] = new_node_handle;
-              e.node = nodes[depth + 1].Get(new_node_handle);
-              EASSERT(e.node);
+              e.node_handle = new_node_handle;
               node_queue.emplace(e);
               i++;
             }
