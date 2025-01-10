@@ -71,9 +71,9 @@ const int flip_lookup[6] = int[6](1, -1, -1, 1, -1, 1);
 vec4 GetVertexPos() {
     UniformData u = uniforms[gl_BaseInstance];
     uint face = u.pos.w & 7;
-    // int chunk_mult = 2;
-    int chunk_mult = int(u.pos.w >> 3);
-    ivec3 chunk_offset_pos = u.pos.xyz * 62 * chunk_mult;
+    int chunk_mult = int(EXPXM1(u.pos.w >> 3));
+    // chunk_mult = 2;
+    ivec3 chunk_offset_pos = u.pos.xyz;
     // get index within the quad
     int vertex_id = int(gl_VertexIndex & 3u);
     // get quad idx

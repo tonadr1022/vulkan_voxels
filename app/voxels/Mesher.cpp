@@ -59,11 +59,6 @@ void GenerateMesh(std::span<uint8_t> voxels, MeshAlgData& alg_data, MesherOutput
   auto& right_merged = alg_data.right_merged;
   int i_vertex{0};
   auto& face_masks = alg_data.face_masks;
-  for (int a = 0; a < CS; a++) {
-    for (int b = 0; b < CS; b++) {
-      // uint
-    }
-  }
   // Hidden face culling
   for (int a = 1; a < PCS - 1; a++) {
     const int a_pcs = a * PCS;

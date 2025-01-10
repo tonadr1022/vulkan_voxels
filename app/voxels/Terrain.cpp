@@ -79,4 +79,14 @@ int GetHeight(std::span<const float> noise, int i, uvec2 range) {
 int GetHeight(std::span<const float> noise, int x, int z, uvec2 range) {
   return std::floor(((noise[x * PCS + z] + 1.0) * 0.5 * (range.y - range.x)) + range.x);
 }
+
+void FillVisibleCube(PaddedChunkGrid3D& grid, int gap, int val) {
+  for (int y = 1 + gap; y < PCS - 1 - gap; y++) {
+    for (int z = 1 + gap; z < PCS - 1 - gap; z++) {
+      for (int x = 1 + gap; x < PCS - 1 - gap; x++) {
+        grid.Set(x, y, z, val);
+      }
+    }
+  }
+}
 }  // namespace gen

@@ -136,7 +136,8 @@ void VoxelWorld::Update() {
         stats_.tot_quads += data.vertex_cnt;
         ChunkMeshUpload u{};
         u.staging_copy_idx = mesh_task.staging_copy_idx;
-        u.pos = chunk_pool_.Get(mesh_task.chunk_handle)->pos;
+        u.mult = 1;
+        u.pos = chunk_pool_.Get(mesh_task.chunk_handle)->pos * CS * u.mult;
         for (int i = 0; i < 6; i++) {
           u.counts[i] = alg_data.face_vertex_lengths[i];
         }

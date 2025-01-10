@@ -1,6 +1,8 @@
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
+#include <numeric>
 
 #include "EAssert.hpp"
 #define GLM_ENABLE_EXPERIMENTAL
@@ -68,14 +70,14 @@ struct MeshOctree {
 
   // TODO: memory pool
   struct NodeStackItem {
-    uint32_t node_handle;
+    uint32_t node_idx;
     ivec3 pos;
     int depth;
   };
-  static constexpr int MaxDepth = 5;
+  static constexpr int MaxDepth = 3;
   std::queue<NodeStackItem> node_queue;
   std::unordered_map<ivec3, HeightMapFloats> height_maps;
-  std::array<int, MaxDepth> lod_bounds;
+  std::array<int, MaxDepth + 1> lod_bounds;
   std::vector<ChunkMeshUpload> chunk_mesh_uploads;
   // TODO: refactor
   std::vector<uint32_t> mesh_handles;
@@ -88,127 +90,145 @@ struct MeshOctree {
     //   fmt::println("off {}", off);
     // }
     noise.Init(1, 0.005, 4);
-    nodes[0].AllocNode();
-    auto res = height_maps.emplace(vec3{0}, HeightMapFloats{});
-    FillNoise(res.first->second, vec2{0});
+    auto root = nodes[0].AllocNode();
+    EASSERT(root == 0);
+    // auto res = height_maps.emplace(ivec3{0}, HeightMapFloats{});
+    // FillNoise(res.first->second, vec2{0});
+    Update(ivec3{0});
   }
 
   vec3 ChunkPosToAbsPos(ivec3 chunk_pos) { return vec3{chunk_pos} * vec3{PCS}; }
 
   void Update(vec3 cam_pos) {
-    node_queue.emplace(0, vec3{0}, 0);
-    int i = std::pow(CS, MaxDepth - 1);
-    for (auto& b : lod_bounds) {
-      b = i;
-      i /= CS;
-      fmt::println("b {}", b);
-    }
-    while (node_queue.size()) {
-      auto [node_handle, pos, depth] = node_queue.front();
-      Node* node = nodes[depth].Get(node_handle);
+    EASSERT(nodes.size() && nodes[0].nodes.size() == 1);
+    node_queue.push(NodeStackItem{0, vec3{0}, 0});
+
+    lod_bounds.fill(0);
+    // int k = 1;
+    // for (auto& b : lod_bounds) {
+    //   b = k * CS;
+    //   k *= 2;
+    //   fmt::println("b {}", b);
+    // }
+    // std::ranges::reverse(lod_bounds);
+    while (!node_queue.empty()) {
+      NodeStackItem e = node_queue.front();
       node_queue.pop();
-      auto it = height_maps.find(ivec3{pos.x, pos.z, depth});
-      EASSERT(it != height_maps.end());
-      auto& height_map = it->second;
-      if (glm::distance(ChunkPosToAbsPos(pos), cam_pos) > lod_bounds[depth]) {
+      // auto node_idx = e.node_idx;
+      auto pos = e.pos;
+      auto depth = e.depth;
+      // auto [node_idx, pos, depth] = node_queue.front();
+      // fmt::println("node pos {} {} {}, depth {}", pos.x, pos.y, pos.z, depth);
+      // auto it = height_maps.find(ivec3{pos.x, pos.z, depth});
+      // EASSERT(it != height_maps.end());
+      // auto& height_map = it->second;
+      // bool recurse = (pos.x + pos.y + pos.z + depth) % 2 != 1;
+      if (true) {
+        // if (glm::distance(vec3(pos), cam_pos) > lod_bounds[depth]) {
+        // static int i = 0;
+        // if (depth != 1 || i++ != 3) {
+        //   continue;
+        // }
         // make terrain and mesh using its
-        HeightMapData heights;
-        gen::NoiseToHeights(height_map, heights, {0, (1 * CS * 0.5) - 1});
-        Chunk chunk;
-        chunk.pos = pos;
-        gen::FillSphere<PCS>(chunk.grid, []() { return 128; });
+        // HeightMapData heights;
+        // gen::NoiseToHeights(height_map, heights, {0, (1 * CS * 0.5) - 1});
+        // gen::FillSphere<PCS>(chunk.grid, []() { return 128; });
         // gen::FillChunk(chunk.grid, chunk.pos * CS, heights, [](int, int, int) {
         //   // return (rand() % 255) + 1;
         //   return 128;
         // });
-        {
-          MeshAlgData alg_data;
-          MesherOutputData data;
-          alg_data.mask = &chunk.grid.mask;
-          fmt::println("make mesh {} {} {}", pos.x, pos.y, pos.z);
-          GenerateMesh(chunk.grid.grid.grid, alg_data, data);
-          if (data.vertex_cnt) {
-            uint32_t staging_copy_idx =
-                ChunkMeshManager::Get().CopyChunkToStaging(data.vertices.data(), data.vertex_cnt);
+        Chunk chunk{};
+        chunk.pos = pos;
+        gen::FillVisibleCube(chunk.grid, 0, 1);
+        MeshAlgData alg_data;
+        MesherOutputData data;
+        alg_data.mask = &chunk.grid.mask;
+        GenerateMesh(chunk.grid.grid.grid, alg_data, data);
+        fmt::println("meshing {} {} {} {}, cnt {}", pos.x, pos.y, pos.z, MaxDepth - depth,
+                     data.vertex_cnt);
+        EASSERT(data.vertex_cnt == 6);
+        if (data.vertex_cnt) {
+          uint32_t staging_copy_idx =
+              ChunkMeshManager::Get().CopyChunkToStaging(data.vertices.data(), data.vertex_cnt);
 
-            if (data.vertex_cnt > 0) {
-              ChunkMeshUpload u{};
-              u.staging_copy_idx = staging_copy_idx;
-              u.pos = pos;
-              u.mult = MaxDepth - depth + 1;
-              for (int i = 0; i < 6; i++) {
-                u.counts[i] = alg_data.face_vertex_lengths[i];
-              }
-              chunk_mesh_uploads.emplace_back(u);
-            }
+          ChunkMeshUpload u{};
+          u.staging_copy_idx = staging_copy_idx;
+          u.pos = pos;
+          u.mult = MaxDepth - depth;
+          // 1 2 3 4 5
+          // 1 2 4 8 16
+          // 2^(m-1)
+          for (int i = 0; i < 6; i++) {
+            u.counts[i] = alg_data.face_vertex_lengths[i];
           }
+          chunk_mesh_uploads.emplace_back(u);
         }
       } else {
         if (depth >= MaxDepth) {
           continue;
         }
         // auto to_height_map_idx = [](int x, int z) { return (z * PCS) + x; };
-        auto get_offset = [](int depth) { return std::pow(CS, MaxDepth - depth) / 2; };
-        int off = get_offset(depth);
+        auto get_offset = [](int depth) { return (2 << (depth)) * CS; };
+        int off = get_offset(depth + 1);
 
-        for (int quad = 0; quad < 4; quad++) {
-          // int x_offset = (quad % 2) * (PCS / 2);
-          // int z_offset = (quad / 2) * (PCS / 2);
-          ivec2 quad_chunk_pos_xz = ivec2{pos.x + (off * (quad % 2)), pos.z + (off * (quad / 2))};
-          ivec3 quad_hm_key = ivec3{quad_chunk_pos_xz.x, quad_chunk_pos_xz.y, depth + 1};
-
-          auto it = height_maps.find(quad_hm_key);
-          if (it == height_maps.end()) {
-            it = height_maps.emplace(quad_hm_key, HeightMapFloats{}).first;
-            // HeightMapFloats& quadrant_hm = it->second;
-            // HeightMapFloats new_noise_map;
-
-            // FillNoise(new_noise_map, vec2{pos.x, pos.z} + vec2{quad_hm_key.x, quad_hm_key.y});
-            // for (int z = 0, i = 0; z < PCS; z++) {
-            //   for (int x = 0; x < PCS; x++, i++) {
-            //     int x1 = (x / 2) + x_offset;
-            //     int x2 = x1 + 1;
-            //     int z1 = (z / 2) + z_offset;
-            //     int z2 = z1 + 1;
-            //
-            //     // Clamp indices to avoid out-of-bounds
-            //     x1 = std::min(x1, PCS - 1);
-            //     x2 = std::min(x2, PCS - 1);
-            //     z1 = std::min(z1, PCS - 1);
-            //     z2 = std::min(z2, PCS - 1);
-            //     float v1 = height_map[to_height_map_idx(x1, z1)];
-            //     float v2 = height_map[to_height_map_idx(x2, z1)];
-            //     float v3 = height_map[to_height_map_idx(x1, z2)];
-            //     float v4 = height_map[to_height_map_idx(x2, z2)];
-            //     float tx = (x % 2) / 2.f;
-            //     float tz = (z % 2) / 2.f;
-            //     float interpolated = (v1 * (1.f - tx) * (1.f - tz)) + (v2 * (1.f - tz) * tx) +
-            //                          (v3 * (1.f - tx) * tz) + (v4 * tx * tz);
-            //
-            //     quadrant_hm[i] = interpolated + new_noise_map[i];
-            //   }
-            // }
-          }
-        }
+        // for (int quad = 0; quad < 4; quad++) {
+        //   // int x_offset = (quad % 2) * (PCS / 2);
+        //   // int z_offset = (quad / 2) * (PCS / 2);
+        //   ivec2 quad_chunk_pos_xz = ivec2{pos.x + (off * (quad % 2)), pos.z + (off * (quad /
+        //   2))}; ivec3 quad_hm_key = ivec3{quad_chunk_pos_xz.x, quad_chunk_pos_xz.y, depth + 1};
+        //
+        //   auto it = height_maps.find(quad_hm_key);
+        //   if (it == height_maps.end()) {
+        //     it = height_maps.emplace(quad_hm_key, HeightMapFloats{}).first;
+        //     // HeightMapFloats& quadrant_hm = it->second;
+        //     // HeightMapFloats new_noise_map;
+        //
+        //     // FillNoise(new_noise_map, vec2{pos.x, pos.z} + vec2{quad_hm_key.x, quad_hm_key.y});
+        //     // for (int z = 0, i = 0; z < PCS; z++) {
+        //     //   for (int x = 0; x < PCS; x++, i++) {
+        //     //     int x1 = (x / 2) + x_offset;
+        //     //     int x2 = x1 + 1;
+        //     //     int z1 = (z / 2) + z_offset;
+        //     //     int z2 = z1 + 1;
+        //     //
+        //     //     // Clamp indices to avoid out-of-bounds
+        //     //     x1 = std::min(x1, PCS - 1);
+        //     //     x2 = std::min(x2, PCS - 1);
+        //     //     z1 = std::min(z1, PCS - 1);
+        //     //     z2 = std::min(z2, PCS - 1);
+        //     //     float v1 = height_map[to_height_map_idx(x1, z1)];
+        //     //     float v2 = height_map[to_height_map_idx(x2, z1)];
+        //     //     float v3 = height_map[to_height_map_idx(x1, z2)];
+        //     //     float v4 = height_map[to_height_map_idx(x2, z2)];
+        //     //     float tx = (x % 2) / 2.f;
+        //     //     float tz = (z % 2) / 2.f;
+        //     //     float interpolated = (v1 * (1.f - tx) * (1.f - tz)) + (v2 * (1.f - tz) * tx) +
+        //     //                          (v3 * (1.f - tx) * tz) + (v4 * tx * tz);
+        //     //
+        //     //     quadrant_hm[i] = interpolated + new_noise_map[i];
+        //     //   }
+        //     // }
+        //   }
+        // }
 
         // TODO: refactor
-        int i = 0;
-        for (int y = 0; y < 2; y++) {
-          for (int z = 0; z < 2; z++) {
-            for (int x = 0; x < 2; x++) {
-              NodeStackItem e;
-              e.depth = depth + 1;
-              e.pos = pos + ivec3{x, y, z} * off;
-              fmt::println("new pos {} {} {} {}, {}", e.pos.x, e.pos.y, e.pos.z, e.depth, i);
-              // TODO: check if child exists!
-              uint32_t new_node_handle = nodes[depth + 1].AllocNode();
-              node->data[i] = new_node_handle;
-              e.node_handle = new_node_handle;
-              node_queue.emplace(e);
-              i++;
-            }
-          }
-        }
+        // int i = 0;
+        // for (int y = 0; y < 2; y++) {
+        //   for (int z = 0; z < 2; z++) {
+        //     for (int x = 0; x < 2; x++) {
+        //       NodeStackItem e{};
+        //       e.depth = depth + 1;
+        //       e.pos = pos + ivec3{x, y, z} * off;
+        //       // fmt::println("depth {} off {}", depth + 1, off);
+        //       // TODO: check if child exists!
+        //       uint32_t new_node_handle = nodes[e.depth].AllocNode();
+        //       // nodes[depth].Get(node_idx)->data[i] = new_node_handle;
+        //       e.node_idx = new_node_handle;
+        //       node_queue.emplace(e);
+        //       // i++;
+        //     }
+        //   }
+        // }
 
         // if height maps for children don't exist, make them
         // bilinear interpolate the floats to get 4 new ones

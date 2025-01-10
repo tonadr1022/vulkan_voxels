@@ -27,6 +27,20 @@ void FillSphereArgs(PaddedChunkGrid3D& grid, Func&& func) {
     }
   }
 }
+void FillVisibleCube(PaddedChunkGrid3D& grid, int gap, int val);
+
+template <typename Func>
+void FillVisibleCube(PaddedChunkGrid3D& grid, int gap, Func&& func) {
+  static_assert(std::is_invocable_v<Func> && "Func not invocable");
+  for (int y = 1 + gap; y < PCS - 1 - gap; y++) {
+    for (int z = 1 + gap; z < PCS - 1 - gap; z++) {
+      for (int x = 1 + gap; x < PCS - 1 - gap; x++) {
+        grid.Set(x, y, z, func());
+      }
+    }
+  }
+}
+
 template <int Len, typename Func>
 void FillSphere(PaddedChunkGrid3D& grid, Func&& func) {
   static_assert(std::is_invocable_v<Func> && "Func not invocable");

@@ -1,5 +1,4 @@
 #include <chrono>
-#include <condition_variable>
 #include <cstdlib>
 #include <fstream>
 #include <thread>
@@ -256,6 +255,9 @@ constexpr int MaxMeshTasks = 256;
 }  // namespace
 
 int main() {
+  MeshOctree oct{};
+  oct.Init();
+  // oct.Update(ivec3{0});
   const char* settings_path = RESOURCE_DIR PATH_SEP "config.bin";
   settings.Load(settings_path);
   FixedSizePtrPool<MeshAlgData> mesh_alg_pool;
@@ -276,13 +278,9 @@ int main() {
   Timer timer;
   double last_time = timer.ElapsedMS();
 
-  std::condition_variable cv;
   static AutoCVarInt world_update_sleep_time("world.update_sleep_time",
                                              "World Update Sleep Time MS", 1000);
 #ifdef OCTREE_TEST
-  MeshOctree oct;
-  oct.Init();
-  oct.Update({});
 #else
   InitWorld();
   auto f = std::thread([]() {

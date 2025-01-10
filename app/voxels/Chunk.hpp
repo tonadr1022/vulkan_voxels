@@ -15,10 +15,12 @@ struct PaddedChunkGrid3D {
     memset(mask.mask.data(), 0, sizeof(mask));
     memset(grid.grid.data(), 0, sizeof(grid.grid));
   }
-  [[nodiscard]] bool ValidateBitmask() const;
+  bool ValidateBitmask() const;
 };
 
 struct Chunk {
+  Chunk() = default;
+  explicit Chunk(ivec3 pos) : pos(pos) {}
   PaddedChunkGrid3D grid;
   ivec3 pos;
 };

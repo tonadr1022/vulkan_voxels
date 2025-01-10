@@ -5,6 +5,7 @@ bool PaddedChunkGrid3D::ValidateBitmask() const {
     for (int x = 0; x < PaddedChunkGrid3D::Dims.x; x++) {
       for (int z = 0; z < PaddedChunkGrid3D::Dims.z; z++) {
         if ((grid.GetZXY(x, y, z) != 0) != mask.TestZXY(x, y, z)) {
+          EASSERT(0);
           return false;
         }
       }

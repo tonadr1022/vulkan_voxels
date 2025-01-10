@@ -1,6 +1,6 @@
 #pragma once
 
-#define PACK_QUAD
+// #define PACK_QUAD
 
 constexpr const int CS = 62;
 constexpr const int HALFCS = CS >> 2;

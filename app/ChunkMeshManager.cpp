@@ -89,6 +89,7 @@ void ChunkMeshManager::UploadChunkMeshes(std::span<ChunkMeshUpload> uploads,
     ChunkDrawUniformData d{};
     // int mult = *CVarSystem::Get().GetIntCVar("chunks.chunk_mult");
     d.position = ivec4(pos, mult << 3);
+    // d.position = ivec4(pos, mult << 3);
     int quad_cnt{};
     for (int i = 0; i < 6; i++) {
       if (counts[i]) {

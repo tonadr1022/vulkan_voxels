@@ -84,16 +84,17 @@ void main() {
     DrawInfo info = in_draw_info[g_id];
     if (info.handle == 0) return;
 
-    int chunk_mult = info.pos.w >> 3;
-    float chunk_size = chunk_mult * 62.0;
+    int chunk_mult = EXPXM1(info.pos.w >> 3);
+    float chunk_size = 62.0 * chunk_mult;
     float half_chunk_size = chunk_size * 0.5;
-    vec3 chunk_center = vec3(info.pos.xyz) * chunk_size + vec3(half_chunk_size);
+    vec3 chunk_center = vec3(info.pos.xyz) + vec3(half_chunk_size);
 
     // TODO: visibility test
     uint offset = info.vertex_offset;
     const bool freeze_cull = bool(bits.x & 0x4);
     if (freeze_cull) return;
-    const bool frustum_cull_enabled = !freeze_cull && bool(bits.x & 0x2);
+    bool frustum_cull_enabled = !freeze_cull && bool(bits.x & 0x2);
+    frustum_cull_enabled = false;
     if (frustum_cull_enabled) {
         vec4 pos = vec4(chunk_center - cam_pos.xyz, 1.0);
         if (!CullFrustum(pos, length(vec3(half_chunk_size)))) return;
@@ -103,14 +104,21 @@ void main() {
         vec3 face_normal = normal_lookup[i];
         uint size_bytes = info.vertex_counts[i] * VERTEX_SIZE;
         if (size_bytes == 0) continue;
+        // if (i != 0) {
+        // if (i != 0 && i != 4) {
+        //     // if (i != 0 && i != 1 && i != 2 && i != 3 && i != 4) {
+        //     offset += size_bytes;
+        //     continue;
+        // }
 
-        // if (info.pos.z != 78 || info.pos.y != 0) {
+        // if (info.pos.z != 78 || info.pos.y != 0){
         //     offset += size_bytes;
         //     continue;
         // }
 
         bool visible = ChunkBackFaceCull(chunk_center, i, chunk_size);
-        // visible = true;
+        // visible = !visible;
+        // bool visible = true;
 
         if (!freeze_cull && visible) {
             uint insert_idx = atomicAdd(next_idx, 1);
@@ -125,7 +133,7 @@ void main() {
             #endif
             cmd.first_index = 0;
             UniformData uniform_data;
-            uniform_data.pos = ivec4(info.pos.xyz, (chunk_mult << 3) | i);
+            uniform_data.pos = ivec4(info.pos.xyz, info.pos.w | i);
             out_uniforms[insert_idx] = uniform_data;
             out_draw_cmds[insert_idx] = cmd;
         }
