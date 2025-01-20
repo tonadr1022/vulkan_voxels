@@ -29,7 +29,7 @@ using tvk::util::BlitImage;
 namespace {
 
 inline AutoCVarInt wireframe{"renderer.wireframe", "Wireframe Mode", 0, CVarFlags::EditCheckbox};
-inline AutoCVarFloat z_far{"renderer.z_far", "Z Far", 40000.f, CVarFlags::EditFloatDrag};
+inline AutoCVarFloat z_far{"renderer.z_far", "Z Far", 400000, CVarFlags::EditFloatDrag};
 VkPolygonMode GetPolygonMode() {
   return wireframe.Get() ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
 }

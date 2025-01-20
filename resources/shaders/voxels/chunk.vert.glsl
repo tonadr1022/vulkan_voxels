@@ -110,8 +110,8 @@ vec4 GetVertexPos() {
 
     vec3 vertex_pos = i_vertex_pos - scene_data.view_pos_int.xyz;
     // offset by a little for t-junctions
-    // vertex_pos[w_dir] += 0.0007 * flip_lookup[face] * (w_mod * 2 - 1);
-    // vertex_pos[h_dir] += 0.0007 * (h_mod * 2 - 1);
+    vertex_pos[w_dir] += 0.0007 * flip_lookup[face] * (w_mod * 2 - 1);
+    vertex_pos[h_dir] += 0.0007 * (h_mod * 2 - 1);
 
     return scene_data.world_center_viewproj * vec4(vertex_pos, 1.0);
 }

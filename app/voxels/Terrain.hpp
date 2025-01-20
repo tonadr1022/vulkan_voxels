@@ -29,21 +29,10 @@ void FillSphereArgs(PaddedChunkGrid3D& grid, Func&& func) {
 }
 void FillVisibleCube(PaddedChunkGrid3D& grid, int gap, int val);
 
-template <typename Func>
-void FillVisibleCube(PaddedChunkGrid3D& grid, int gap, Func&& func) {
-  static_assert(std::is_invocable_v<Func> && "Func not invocable");
-  for (int y = 1 + gap; y < PCS - 1 - gap; y++) {
-    for (int z = 1 + gap; z < PCS - 1 - gap; z++) {
-      for (int x = 1 + gap; x < PCS - 1 - gap; x++) {
-        grid.Set(x, y, z, func());
-      }
-    }
-  }
-}
+void FillVisibleCube(PaddedChunkGrid3D& grid, int gap, const std::function<uint8_t()>& func);
 
-template <int Len, typename Func>
-void FillSphere(PaddedChunkGrid3D& grid, Func&& func) {
-  static_assert(std::is_invocable_v<Func> && "Func not invocable");
+template <int Len>
+void FillSphere(PaddedChunkGrid3D& grid, const std::function<uint8_t()>& func) {
   int r = CS / 2;
   for (int y = -r; y < r; y++) {
     for (int x = -r; x < r; x++) {
@@ -51,6 +40,21 @@ void FillSphere(PaddedChunkGrid3D& grid, Func&& func) {
         uint8_t type = 0;
         if (glm::distance(glm::vec3(x, y, z), glm::vec3(0)) < r) {
           type = func();
+        }
+        grid.Set(x + r, y + r, z + r, type);
+      }
+    }
+  }
+}
+template <int Len>
+void FillSphere(PaddedChunkGrid3D& grid, uint8_t val) {
+  int r = CS / 2;
+  for (int y = -r; y < r; y++) {
+    for (int x = -r; x < r; x++) {
+      for (int z = -r; z < r; z++) {
+        uint8_t type = 0;
+        if (glm::distance(glm::vec3(x, y, z), glm::vec3(0)) < r) {
+          type = val;
         }
         grid.Set(x + r, y + r, z + r, type);
       }

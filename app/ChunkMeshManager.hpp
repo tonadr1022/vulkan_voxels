@@ -50,7 +50,6 @@ class ChunkMeshManager {
   friend struct VoxelRenderer;
   VoxelRenderer* renderer_{};
 
-  size_t face_draw_cmds_{};
   size_t quad_count_{};
   std::vector<AsyncTransfer> transfers_;
   VertexPool<ChunkDrawUniformData> chunk_quad_buffer_;

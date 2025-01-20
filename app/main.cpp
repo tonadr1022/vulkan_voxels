@@ -23,7 +23,7 @@
 #include "voxels/Mesher.hpp"
 #include "voxels/VoxelWorld.hpp"
 
-// #define OCTREE_TEST
+#define OCTREE_TEST
 
 #ifdef OCTREE_TEST
 #include "voxels/Octree.hpp"
@@ -312,6 +312,7 @@ int main() {
       std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<int>(fake_delay.Get())));
     }
     Update(dt);
+    // oct.Update(main_cam.position);
 
     if (draw_imgui) {
       ZoneScopedN("ImGui");

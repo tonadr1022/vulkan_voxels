@@ -45,10 +45,6 @@ struct MeshOctree {
     static constexpr std::array<uint32_t, 8> Mask = {1 << 0, 1 << 1, 1 << 2, 1 << 3,
                                                      1 << 4, 1 << 5, 1 << 6, 1 << 7};
     [[nodiscard]] bool IsLeaf(uint8_t child) const { return leaf_mask & Mask[child]; }
-
-    void ClearMask(uint8_t idx) { leaf_mask &= ~Mask[idx]; }
-    [[nodiscard]] bool IsSet(uint8_t child) const { return leaf_mask & Mask[child]; }
-
     void SetChild(uint8_t child, uint32_t idx) {
       leaf_mask &= ~Mask[child];
       data[child] = idx;
@@ -66,7 +62,6 @@ struct MeshOctree {
       leaf_mask = UINT8_MAX;
     }
     std::array<uint32_t, 8> data;
-    uint32_t mesh_handle;
     // TODO: refactor
     uint8_t leaf_mask;
   };
@@ -75,24 +70,15 @@ struct MeshOctree {
   struct NodeQueueItem {
     uint32_t node_idx;
     ivec3 pos;
-    uint32_t depth;
+    int depth;
   };
   static constexpr int MaxDepth = 25;
+  std::queue<NodeQueueItem> node_queue;
   std::array<int, MaxDepth + 1> lod_bounds;
   std::vector<ChunkMeshUpload> chunk_mesh_uploads;
-  struct NodeKey {
-    uint32_t depth;
-    uint32_t idx;
-  };
-  std::vector<NodeKey> chunk_mesh_node_keys;
   // TODO: refactor
   std::vector<uint32_t> mesh_handles;
-  std::vector<uint32_t> meshes_to_free;
-  std::queue<NodeQueueItem> node_queue;
   std::array<NodeList<Node>, MaxDepth + 1> nodes;
-  Node* GetNode(uint32_t depth, uint32_t idx) { return &nodes[depth].nodes[idx]; }
-  Node* GetNode(const NodeKey& loc) { return &nodes[loc.depth].nodes[loc.idx]; }
-
   gen::FBMNoise noise;
   // std::unordered_map<ivec3, HeightMapFloats> height_maps;
 
@@ -106,83 +92,106 @@ struct MeshOctree {
     EASSERT(root == 0);
     // auto res = height_maps.emplace(ivec3{0}, HeightMapFloats{});
     // FillNoise(res.first->second, vec2{0});
+    Update(ivec3{0});
+  }
 
+  vec3 ChunkPosToAbsPos(ivec3 chunk_pos) { return vec3{chunk_pos} * vec3{PCS}; }
+
+  void Update(vec3 cam_pos) {
+    auto initial_depth = 0;
+    EASSERT(node_queue.empty());
+    // EASSERT(nodes.size() && nodes[initial_depth].nodes.size() == 1);
+    node_queue.push(NodeQueueItem{0, vec3{0}, initial_depth});
+
+    // lod_bounds.fill(0);
     int k = 1;
     for (auto& b : lod_bounds) {
       b = k * CS;
       k *= 2;
     }
     std::ranges::reverse(lod_bounds);
-
-    Update(ivec3{0});
-  }
-
-  vec3 ChunkPosToAbsPos(ivec3 chunk_pos) { return vec3{chunk_pos} * vec3{PCS}; }
-
-  ChunkMeshUpload PrepareChunkMeshUpload(const MeshAlgData& alg_data, const MesherOutputData& data,
-                                         ivec3 pos, uint32_t depth) {
-    uint32_t staging_copy_idx =
-        ChunkMeshManager::Get().CopyChunkToStaging(data.vertices.data(), data.vertex_cnt);
-    ChunkMeshUpload u{};
-    u.staging_copy_idx = staging_copy_idx;
-    u.pos = pos;
-    int m = MaxDepth - depth + 1;
-    u.mult = 1 << (m - 1);
-    for (int i = 0; i < 6; i++) {
-      u.counts[i] = alg_data.face_vertex_lengths[i];
+    for (auto b : lod_bounds) {
+      fmt::println("b {}", b);
     }
-    return u;
-  }
-
-  std::vector<NodeKey> s;
-  void FreeChildren(std::vector<uint32_t>& meshes_to_free, uint32_t node_idx, uint32_t depth) {
-    s.emplace_back(depth, node_idx);
-    while (s.size()) {
-      auto [depth, idx] = s.back();
-      s.pop_back();
-      auto* node = GetNode(depth, idx);
-      for (int i = 0; i < 8; i++) {
-        if (node->IsSet(i)) {
-          node->ClearMask(i);
-          uint32_t child_idx = node->data[i];
-          meshes_to_free.emplace_back(GetNode(depth + 1, child_idx)->mesh_handle);
-          GetNode(depth + 1, child_idx)->mesh_handle = 0;
-          s.emplace_back(NodeKey{depth + 1, child_idx});
-        }
-      }
-    }
-  }
-
-  void Update(vec3 cam_pos) {
-    node_queue.push(NodeQueueItem{0, vec3{0}, 0});
+    // {
+    //   Chunk chunk;
+    //   chunk.grid = {};
+    //   chunk.pos = ivec3{};
+    //   gen::FillVisibleCube(chunk.grid, 0, 1);
+    //   MeshAlgData alg_data;
+    //   MesherOutputData data;
+    //   alg_data.mask = &chunk.grid.mask;
+    //   GenerateMesh(chunk.grid.grid.grid, alg_data, data);
+    //   if (data.vertex_cnt != 6) {
+    //     fmt::println("{} cnt", data.vertex_cnt);
+    //     EASSERT(data.vertex_cnt == 6);
+    //   }
+    //   fmt::println("success");
+    //   fmt::println("meshed {}, cnt {}", MaxDepth, data.vertex_cnt);
+    //   // exit(1);
+    // }
     while (!node_queue.empty()) {
-      auto [node_idx, pos, depth] = node_queue.front();
+      NodeQueueItem e = node_queue.front();
       node_queue.pop();
+      // auto node_idx = e.node_idx;
+      ivec3 pos = e.pos;
+      int depth = e.depth;
+      // auto [node_idx, pos, depth] = node_queue.front();
       // fmt::println("node pos {} {} {}, depth {}", pos.x, pos.y, pos.z, depth);
       // auto it = height_maps.find(ivec3{pos.x, pos.z, depth});
       // EASSERT(it != height_maps.end());
       // auto& height_map = it->second;
-      ivec3 chunk_center = pos;
-      if (glm::distance(vec3(chunk_center), cam_pos) >= lod_bounds[depth] || depth == MaxDepth) {
-        FreeChildren(meshes_to_free, node_idx, depth);
-        auto* node = GetNode(depth, node_idx);
-        if (!node->mesh_handle) {
-          Chunk chunk;
-          chunk.grid = {};
-          chunk.pos = pos;
-          gen::FillSphere<PCS>(chunk.grid, depth * 30);
-          // gen::FillVisibleCube(chunk.grid, 2, depth * 30);
-          MeshAlgData alg_data{};
-          MesherOutputData data{};
-          alg_data.mask = &chunk.grid.mask;
-          GenerateMesh(chunk.grid.grid.grid, alg_data, data);
-          if (data.vertex_cnt) {
-            ChunkMeshUpload u = PrepareChunkMeshUpload(alg_data, data, pos, depth);
-            chunk_mesh_uploads.emplace_back(u);
-            chunk_mesh_node_keys.emplace_back(NodeKey{.depth = depth, .idx = node_idx});
-          }
+      // bool recurse = (pos.x + pos.y + pos.z + depth) % 2 != 1;
+      // if (true) {
+      // fmt::println("pos {} {} {}, depth {}, lod bound {}, mesh {}", pos.x, pos.y, pos.z, depth,
+      //              lod_bounds[depth], glm::distance(vec3(pos), cam_pos) >= lod_bounds[depth]);
+      if (glm::distance(vec3(pos), cam_pos) >= lod_bounds[depth] || depth == MaxDepth) {
+        // static int i = 0;
+        // if (depth != 1 || i++ != 3) {
+        //   continue;
+        // }
+        // make terrain and mesh using its
+        // HeightMapData heights;
+        // gen::NoiseToHeights(height_map, heights, {0, (1 * CS * 0.5) - 1});
+        // gen::FillSphere<PCS>(chunk.grid, []() { return 128; });
+        // gen::FillChunk(chunk.grid, chunk.pos * CS, heights, [](int, int, int) {
+        //   // return (rand() % 255) + 1;
+        //   return 128;
+        // });
+        Chunk chunk;
+        chunk.grid = {};
+        chunk.pos = pos;
+        gen::FillVisibleCube(chunk.grid, 2, depth * 30);
+        MeshAlgData alg_data;
+        MesherOutputData data;
+        alg_data.mask = &chunk.grid.mask;
+        GenerateMesh(chunk.grid.grid.grid, alg_data, data);
+        if (data.vertex_cnt != 6) {
+          fmt::println("{} cnt", data.vertex_cnt);
+          // EASSERT(data.vertex_cnt == 6);
         }
-      } else if (depth < MaxDepth) {
+        // fmt::println("meshed {} {} {} {}, cnt {}", pos.x, pos.y, pos.z, MaxDepth - depth,
+        //              data.vertex_cnt);
+        if (data.vertex_cnt) {
+          uint32_t staging_copy_idx =
+              ChunkMeshManager::Get().CopyChunkToStaging(data.vertices.data(), data.vertex_cnt);
+          ChunkMeshUpload u{};
+          u.staging_copy_idx = staging_copy_idx;
+          u.pos = pos;
+          int m = MaxDepth - depth + 1;
+          u.mult = 1 << (m - 1);
+          // 1 2 3 4 5
+          // 1 2 4 8 16
+          // 2^(m-1)
+          for (int i = 0; i < 6; i++) {
+            u.counts[i] = alg_data.face_vertex_lengths[i];
+          }
+          chunk_mesh_uploads.emplace_back(u);
+        }
+      } else {
+        if (depth >= MaxDepth) {
+          continue;
+        }
         // auto to_height_map_idx = [](int x, int z) { return (z * PCS) + x; };
         auto get_offset = [](int depth) { return (1 << (depth)) * CS; };
         int off = get_offset(MaxDepth - depth - 1);
@@ -227,25 +236,20 @@ struct MeshOctree {
         // }
 
         // TODO: refactor
-        int i = 0;
+        // int i = 0;
         for (int y = 0; y < 2; y++) {
           for (int z = 0; z < 2; z++) {
             for (int x = 0; x < 2; x++) {
               NodeQueueItem e{};
               e.depth = depth + 1;
               e.pos = pos + ivec3{x, y, z} * off;
-              auto* node = nodes[depth].Get(node_idx);
-              EASSERT(node);
-              uint32_t child_node_idx =
-                  node->IsLeaf(i) ? node->data[i] : nodes[e.depth].AllocNode();
-              // if (node->mesh_handle) {
-              //   meshes_to_free.emplace_back(node->mesh_handle);
-              //   node->mesh_handle = 0;
-              // }
-              node->SetData(i, child_node_idx);
-              e.node_idx = child_node_idx;
+              // fmt::println("depth {} off {}", depth + 1, off);
+              // TODO: check if child exists!
+              uint32_t new_node_handle = nodes[e.depth].AllocNode();
+              // nodes[depth].Get(node_idx)->data[i] = new_node_handle;
+              e.node_idx = new_node_handle;
               node_queue.emplace(e);
-              i++;
+              // i++;
             }
           }
         }
@@ -257,18 +261,12 @@ struct MeshOctree {
       }
     }
 
-    ChunkMeshManager::Get().FreeMeshes(meshes_to_free);
-    meshes_to_free.clear();
-    EASSERT(chunk_mesh_node_keys.size() == chunk_mesh_uploads.size());
     if (chunk_mesh_uploads.size()) {
-      mesh_handles.resize(chunk_mesh_uploads.size());
-      ChunkMeshManager::Get().UploadChunkMeshes(chunk_mesh_uploads, mesh_handles);
-      for (size_t i = 0; i < chunk_mesh_node_keys.size(); i++) {
-        GetNode(chunk_mesh_node_keys[i])->mesh_handle = mesh_handles[i];
-      }
+      auto old_count = mesh_handles.size();
+      mesh_handles.resize(mesh_handles.size() + chunk_mesh_uploads.size());
+      std::span<ChunkAllocHandle> s(mesh_handles.begin() + old_count, mesh_handles.size());
+      ChunkMeshManager::Get().UploadChunkMeshes(chunk_mesh_uploads, s);
     }
-    mesh_handles.clear();
-    chunk_mesh_node_keys.clear();
     chunk_mesh_uploads.clear();
   }
 

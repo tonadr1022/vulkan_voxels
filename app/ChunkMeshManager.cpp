@@ -92,9 +92,6 @@ void ChunkMeshManager::UploadChunkMeshes(std::span<ChunkMeshUpload> uploads,
     // d.position = ivec4(pos, mult << 3);
     int quad_cnt{};
     for (int i = 0; i < 6; i++) {
-      if (counts[i]) {
-        face_draw_cmds_++;
-      }
       quad_cnt += counts[i];
       d.vertex_counts[i] = counts[i];
     }
@@ -141,7 +138,6 @@ void ChunkMeshManager::Update() {
 
 void ChunkMeshManager::DrawImGuiStats() const {
   ImGui::Text("Draw cmds: %ld", chunk_quad_buffer_.draw_cmds_count);
-  ImGui::Text("Draw cmds face: %ld", face_draw_cmds_);
   ImGui::Text("size %ld", sizeof(Allocation<ChunkDrawUniformData>));
 }
 
