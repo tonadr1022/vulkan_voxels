@@ -23,7 +23,7 @@
 #include "voxels/Mesher.hpp"
 #include "voxels/VoxelWorld.hpp"
 
-#define OCTREE_TEST
+// #define OCTREE_TEST
 
 #ifdef OCTREE_TEST
 #include "voxels/Octree.hpp"
@@ -255,9 +255,6 @@ constexpr int MaxMeshTasks = 256;
 }  // namespace
 
 int main() {
-  MeshOctree oct{};
-  oct.Init();
-  // oct.Update(ivec3{0});
   const char* settings_path = RESOURCE_DIR PATH_SEP "config.bin";
   settings.Load(settings_path);
   FixedSizePtrPool<MeshAlgData> mesh_alg_pool;
@@ -281,6 +278,9 @@ int main() {
   static AutoCVarInt world_update_sleep_time("world.update_sleep_time",
                                              "World Update Sleep Time MS", 1000);
 #ifdef OCTREE_TEST
+  MeshOctree oct{};
+  oct.Init();
+  // oct.Update(ivec3{0});
 #else
   InitWorld();
   auto f = std::thread([]() {

@@ -84,7 +84,7 @@ void main() {
     DrawInfo info = in_draw_info[g_id];
     if (info.handle == 0) return;
 
-    int chunk_mult = EXPXM1(info.pos.w >> 3);
+    int chunk_mult = info.pos.w >> 3;
     float chunk_size = 62.0 * chunk_mult;
     float half_chunk_size = chunk_size * 0.5;
     vec3 chunk_center = vec3(info.pos.xyz) + vec3(half_chunk_size);
