@@ -2,6 +2,7 @@
 
 #include <vulkan/vulkan_core.h>
 
+#include <span>
 #include <tracy/Tracy.hpp>
 
 #include "DeletionQueue.hpp"
@@ -381,6 +382,16 @@ struct VertexPool {
     vertex_staging.Init(sizeof(uint64_t) * 100 * 10000);
   }
 
+  uint32_t FreeMeshes(std::span<uint32_t> handles) {
+    std::lock_guard<std::mutex> lock(mtx_);
+    EASSERT(draw_cmds_count >= handles.size());
+    draw_cmds_count -= handles.size();
+    uint32_t freed = 0;
+    for (auto h : handles) {
+      freed += draw_cmd_allocator.Free(h);
+    }
+    return freed;
+  }
   // returns num bytes freed
   uint32_t FreeMesh(uint32_t handle) {
     std::lock_guard<std::mutex> lock(mtx_);

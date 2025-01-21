@@ -1,4 +1,4 @@
-// #define PACK_QUAD
+#define PACK_QUAD
 
 #define SINGLE_TRIANGLE_QUAD
 

@@ -312,12 +312,13 @@ int main() {
       std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<int>(fake_delay.Get())));
     }
     Update(dt);
-    // oct.Update(main_cam.position);
+    oct.Update(main_cam.position);
 
     if (draw_imgui) {
       ZoneScopedN("ImGui");
       window.StartImGuiFrame();
       DrawImGui(dt);
+      oct.OnImGui();
       window.EndImGuiFrame();
     }
 

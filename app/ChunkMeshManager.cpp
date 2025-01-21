@@ -76,9 +76,7 @@ void ChunkMeshManager::Init(VoxelRenderer* renderer) {
 }
 
 void ChunkMeshManager::FreeMeshes(std::span<ChunkAllocHandle> handles) {
-  for (auto& h : handles) {
-    quad_count_ -= chunk_quad_buffer_.FreeMesh(h) / sizeof(QuadSize);
-  }
+  quad_count_ -= chunk_quad_buffer_.FreeMeshes(handles) / sizeof(QuadSize);
 }
 
 void ChunkMeshManager::UploadChunkMeshes(std::span<ChunkMeshUpload> uploads,

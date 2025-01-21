@@ -1,13 +1,14 @@
 #pragma once
 
-// #define PACK_QUAD
+#define PACK_QUAD
 
 constexpr const int CS = 62;
-constexpr const int HALFCS = CS >> 2;
+constexpr const int HALFCS = CS / 2;
 constexpr const int CS2 = CS * CS;
 constexpr const int CS3 = CS2 * CS;
 
 constexpr const int PCS = 64;
+constexpr const int HALFPCS = PCS / 2;
 constexpr const int PCS2 = PCS * PCS;
 constexpr const int PCS3 = PCS2 * PCS;
 
