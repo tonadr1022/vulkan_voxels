@@ -38,6 +38,10 @@ struct NodeList {
     free_list.emplace_back(idx);
     nodes[idx] = {};
   }
+  void Clear() {
+    free_list.clear();
+    nodes.clear();
+  }
 };
 
 struct MeshOctree {
@@ -78,7 +82,7 @@ struct MeshOctree {
     ivec3 pos;
     uint32_t depth;
   };
-  static constexpr int MaxDepth = 3;
+  static constexpr int MaxDepth = 10;
   std::array<int, MaxDepth + 1> lod_bounds;
   std::vector<ChunkMeshUpload> chunk_mesh_uploads;
   struct NodeKey {
@@ -92,8 +96,10 @@ struct MeshOctree {
   std::vector<NodeQueueItem> node_queue;
   std::array<NodeList<Node>, MaxDepth + 1> nodes;
 
-  void FreeNode(uint32_t depth, uint32_t idx) { nodes[depth].Free(idx); }
+ private:
+  std::vector<NodeQueueItem> to_mesh_queue_;
 
+  void FreeNode(uint32_t depth, uint32_t idx) { nodes[depth].Free(idx); }
   Node* GetNode(uint32_t depth, uint32_t idx) { return GetNode(NodeKey{depth, idx}); }
   [[nodiscard]] const Node* GetNode(uint32_t depth, uint32_t idx) const {
     return GetNode(NodeKey{depth, idx});
@@ -103,15 +109,17 @@ struct MeshOctree {
     return &nodes[loc.depth].nodes[loc.idx];
   }
 
-  gen::FBMNoise noise;
-  // std::unordered_map<ivec3, HeightMapFloats> height_maps;
+  gen::FBMNoise noise_;
+
+ public:
+  std::unordered_map<ivec3, HeightMapFloats> height_maps;
 
   void Init() {
-    noise.Init(1, 0.005, 4);
+    noise_.Init(1, 0.005, 4);
     auto root = nodes[0].AllocNode();
     EASSERT(root == 0);
-    // auto res = height_maps.emplace(ivec3{0}, HeightMapFloats{});
-    // FillNoise(res.first->second, vec2{0});
+    auto res = height_maps.emplace(ivec3{0}, HeightMapFloats{});
+    FillNoise(res.first->second, vec2{0});
 
     int k = 1;
     for (auto& b : lod_bounds) {
@@ -140,24 +148,36 @@ struct MeshOctree {
     return u;
   }
 
-  std::vector<NodeKey> s;
-  void FreeChildren(std::vector<uint32_t>& meshes_to_free, uint32_t node_idx, uint32_t depth) {
-    s.emplace_back(depth, node_idx);
+  [[nodiscard]] uint32_t GetOffset(uint32_t depth) const { return (1 << depth) * CS; }
+
+  std::vector<NodeQueueItem> s;
+  void FreeChildren(std::vector<uint32_t>& meshes_to_free, uint32_t node_idx, uint32_t depth,
+                    ivec3 pos) {
+    s.emplace_back(NodeQueueItem{node_idx, pos, depth});
     while (!s.empty()) {
-      auto [curr_depth, curr_idx] = s.back();
+      auto [curr_idx, curr_pos, curr_depth] = s.back();
       s.pop_back();
       auto* node = GetNode(curr_depth, curr_idx);
-      if (curr_depth == MaxDepth) EASSERT(node->leaf_mask == 0);
-      for (int i = 0; i < 8; i++) {
-        if (node->IsSet(i)) {
-          s.emplace_back(NodeKey{curr_depth + 1, node->data[i]});
+      EASSERT(curr_depth != MaxDepth || node->leaf_mask == 0);
+      int i = 0;
+      for (int y = 0; y < 2; y++) {
+        for (int z = 0; z < 2; z++) {
+          for (int x = 0; x < 2; x++, i++) {
+            if (node->IsSet(i)) {
+              s.emplace_back(NodeQueueItem{
+                  node->data[i],
+                  pos + (ivec3{x, y, z} * static_cast<int>(GetOffset(MaxDepth - depth - 1))),
+                  curr_depth + 1});
+            }
+          }
         }
       }
       node->ClearMask();
       if (curr_depth != depth) {
         if (node->mesh_handle) {
           meshes_to_free.emplace_back(node->mesh_handle);
-          fmt::println("freeing mesh {} , {} {}", node->mesh_handle, curr_depth, curr_idx);
+          // fmt::println("freeing mesh {} , {} {}, pos {} {} {}", node->mesh_handle, curr_depth,
+          //              curr_idx, curr_pos.x, curr_pos.y, curr_pos.z);
           node->mesh_handle = 0;
         }
         FreeNode(curr_depth, curr_idx);
@@ -190,8 +210,7 @@ struct MeshOctree {
         }
       } else {
         if (depth < MaxDepth) {
-          auto get_offset = [](int depth) { return (1 << (depth)) * CS; };
-          int off = get_offset(MaxDepth - depth - 1);
+          int off = GetOffset(MaxDepth - depth - 1);
           int i = 0;
           for (int y = 0; y < 2; y++) {
             for (int z = 0; z < 2; z++) {
@@ -212,26 +231,114 @@ struct MeshOctree {
     }
   }
 
+  void Reset() {
+    std::vector<NodeQueueItem> node_q;
+    std::vector<uint32_t> to_free;
+    node_q.emplace_back(NodeQueueItem{0, vec3{0}, 0});
+    while (node_q.size()) {
+      auto [node_idx, pos, depth] = node_q.back();
+      node_q.pop_back();
+      const auto* node = GetNode(depth, node_idx);
+      EASSERT(node);
+      if (node->mesh_handle) {
+        to_free.emplace_back(node->mesh_handle);
+        if (depth < MaxDepth) {
+          if (node->leaf_mask != 0) {
+            fmt::println("failed depth {}, node_idx {}", depth, node_idx);
+            EASSERT(node->leaf_mask == 0);
+          }
+        }
+      } else {
+        if (depth < MaxDepth) {
+          int off = GetOffset(MaxDepth - depth - 1);
+          int i = 0;
+          for (int y = 0; y < 2; y++) {
+            for (int z = 0; z < 2; z++) {
+              for (int x = 0; x < 2; x++) {
+                if (node->IsSet(i)) {
+                  NodeQueueItem e;
+                  e.depth = depth + 1;
+                  e.pos = pos + ivec3{x, y, z} * off;
+                  e.node_idx = node->data[i];
+                  node_q.emplace_back(e);
+                }
+                i++;
+              }
+            }
+          }
+        }
+      }
+    }
+    ChunkMeshManager::Get().FreeMeshes(to_free);
+    for (auto& n : nodes) {
+      n.Clear();
+    }
+    nodes[0].AllocNode();
+  }
+
+ private:
+  bool HasChildren(NodeKey node_key) { return GetNode(node_key)->leaf_mask != 0; }
+
+  void InterpolateHeightMap(ivec3 pos, uint32_t depth, HeightMapFloats& height_map) {
+    auto to_height_map_idx = [](int x, int z) { return (z * PCS) + x; };
+    auto off = GetOffset(depth);
+    for (int quad = 0; quad < 4; quad++) {
+      int x_offset = (quad % 2) * (PCS / 2);
+      int z_offset = (quad / 2) * (PCS / 2);
+      ivec2 quad_chunk_pos_xz = ivec2{pos.x + (off * (quad & 2)), pos.z + (off * (quad / 2))};
+      ivec3 quad_hm_key = ivec3{quad_chunk_pos_xz.x, quad_chunk_pos_xz.y, depth + 1};
+      auto it = height_maps.find(quad_hm_key);
+      if (it == height_maps.end()) {
+        it = height_maps.emplace(quad_hm_key, HeightMapFloats{}).first;
+        HeightMapFloats& quadrant_hm = it->second;
+        HeightMapFloats new_noise_map;
+        FillNoise(new_noise_map, vec2{pos.x, pos.z} + vec2{quad_hm_key.x, quad_hm_key.y});
+        for (int z = 0, i = 0; z < PCS; z++) {
+          for (int x = 0; x < PCS; x++, i++) {
+            int x1 = (x / 2) + x_offset;
+            int x2 = x1 + 1;
+            int z1 = (z / 2) + z_offset;
+            int z2 = z1 + 1;
+
+            // Clamp indices to avoid out-of-bounds
+            x1 = std::min(x1, PCS - 1);
+            x2 = std::min(x2, PCS - 1);
+            z1 = std::min(z1, PCS - 1);
+            z2 = std::min(z2, PCS - 1);
+            float v1 = height_map[to_height_map_idx(x1, z1)];
+            float v2 = height_map[to_height_map_idx(x2, z1)];
+            float v3 = height_map[to_height_map_idx(x1, z2)];
+            float v4 = height_map[to_height_map_idx(x2, z2)];
+            float tx = (x % 2) / 2.f;
+            float tz = (z % 2) / 2.f;
+            float interpolated = (v1 * (1.f - tx) * (1.f - tz)) + (v2 * (1.f - tz) * tx) +
+                                 (v3 * (1.f - tx) * tz) + (v4 * tx * tz);
+            quadrant_hm[i] = interpolated + new_noise_map[i];
+          }
+        }
+      }
+    }
+  }
+
+ public:
   void Update(vec3 cam_pos) {
     EASSERT(node_queue.empty());
     node_queue.push_back(NodeQueueItem{0, vec3{0}, 0});
-    std::vector<NodeQueueItem> to_mesh_queue;
     while (!node_queue.empty()) {
       auto [node_idx, pos, depth] = node_queue.back();
       node_queue.pop_back();
-      // auto it = height_maps.find(ivec3{pos.x, pos.z, depth});
-      // EASSERT(it != height_maps.end());
-      // auto& height_map = it->second;
       ivec3 chunk_center = pos + (1 << (MaxDepth - depth)) * HALFCS;
+      // ivec3 chunk_center = pos + (1 << (MaxDepth - depth)) * HALFCS;
       // fmt::println("node pos {} {} {}, depth {}, cs {} {} {}", pos.x, pos.y, pos.z, depth,
       //              chunk_center.x, chunk_center.y, chunk_center.z);
       // mesh if far away enough not to split
-      if (glm::distance(vec3(chunk_center), cam_pos) > lod_bounds[depth] || depth == MaxDepth) {
+      if (glm::distance(vec3(chunk_center), cam_pos) >= lod_bounds[depth] || depth == MaxDepth) {
         // get rid of children of this node since it's a mesh now
-        FreeChildren(meshes_to_free, node_idx, depth);
-        to_mesh_queue.emplace_back(NodeQueueItem{node_idx, pos, depth});
+        if (depth < MaxDepth) {
+          FreeChildren(meshes_to_free, node_idx, depth, pos);
+        }
+        to_mesh_queue_.emplace_back(NodeQueueItem{node_idx, pos, depth});
       } else if (depth < MaxDepth) {
-        // auto to_height_map_idx = [](int x, int z) { return (z * PCS) + x; };
         auto get_offset = [](int depth) { return (1 << (depth)) * CS; };
         int off = get_offset(MaxDepth - depth - 1);
 
@@ -241,6 +348,10 @@ struct MeshOctree {
           meshes_to_free.emplace_back(node->mesh_handle);
           node->mesh_handle = 0;
         }
+
+        fmt::println("{} {} {}", pos.x, pos.z, depth);
+        InterpolateHeightMap(pos, depth, height_maps.at({pos.x, pos.z, depth}));
+
         int i = 0;
         for (int y = 0; y < 2; y++) {
           for (int z = 0; z < 2; z++) {
@@ -259,57 +370,56 @@ struct MeshOctree {
         }
       }
     }
+    if (meshes_to_free.size()) {
+      ChunkMeshManager::Get().FreeMeshes(meshes_to_free);
+      meshes_to_free.clear();
+    }
 
-    for (auto [node_idx, pos, depth] : to_mesh_queue) {
+    for (auto [node_idx, pos, depth] : to_mesh_queue_) {
       auto* node = GetNode(depth, node_idx);
       if (!node->mesh_handle) {
         Chunk chunk{pos};
-        gen::FillSphere<PCS>(chunk.grid, depth * 30);
-        // gen::FillVisibleCube(chunk.grid, 2, depth * 30);
+        chunk.grid = {};
+
+        // gen::FillSphere<PCS>(chunk.grid, depth * 30);
+        gen::FillVisibleCube(chunk.grid, 8, depth * 30);
         MeshAlgData alg_data{};
         MesherOutputData data{};
         alg_data.mask = &chunk.grid.mask;
-        // fmt::println("meshing {} {} {} depth {} node idx {}", pos.x, pos.y, pos.z, depth,
-        // node_idx);
         GenerateMesh(chunk.grid.grid.grid, alg_data, data);
         if (data.vertex_cnt) {
           ChunkMeshUpload u = PrepareChunkMeshUpload(alg_data, data, pos, depth);
           chunk_mesh_uploads.emplace_back(u);
           chunk_mesh_node_keys.emplace_back(NodeKey{.depth = depth, .idx = node_idx});
+          // fmt::println("meshing {} {} {} depth {}", pos.x, pos.y, pos.z, depth, node_idx);
         }
       }
     }
-    to_mesh_queue.clear();
+    to_mesh_queue_.clear();
 
-    if (meshes_to_free.size()) {
-      for (auto m : meshes_to_free) {
-        fmt::print("{} ", m);
-      }
-      fmt::println("");
-    }
-    ChunkMeshManager::Get().FreeMeshes(meshes_to_free);
-    meshes_to_free.clear();
     EASSERT(chunk_mesh_node_keys.size() == chunk_mesh_uploads.size());
     if (chunk_mesh_uploads.size()) {
       mesh_handles.resize(chunk_mesh_uploads.size());
       ChunkMeshManager::Get().UploadChunkMeshes(chunk_mesh_uploads, mesh_handles);
       for (size_t i = 0; i < chunk_mesh_node_keys.size(); i++) {
         GetNode(chunk_mesh_node_keys[i])->mesh_handle = mesh_handles[i];
-        auto& pos = chunk_mesh_uploads[i].pos;
-        fmt::println("meshing {} {} {}, handle {}, mult {}", pos.x, pos.y, pos.z, mesh_handles[i],
-                     chunk_mesh_uploads[i].mult);
+        // auto& pos = chunk_mesh_uploads[i].pos;
+        // fmt::println("meshing {} {} {}, handle {}, mult {}", pos.x, pos.y, pos.z,
+        // mesh_handles[i],
+        //              chunk_mesh_uploads[i].mult);
       }
     }
     mesh_handles.clear();
     chunk_mesh_node_keys.clear();
     chunk_mesh_uploads.clear();
-    Validate();
+
+    // Validate();
   }
 
   void OnImGui() const {
     if (ImGui::Begin("Voxel Octree")) {
       for (int i = 0; i <= MaxDepth; i++) {
-        ImGui::Text("%d: %zu", i, nodes[i].nodes.size());
+        ImGui::Text("%d: %zu", i, nodes[i].nodes.size() - nodes[i].free_list.size());
       }
     }
     ImGui::End();
@@ -319,7 +429,7 @@ struct MeshOctree {
   float freq_{0.005};
   int seed_{1};
   void FillNoise(HeightMapFloats& floats, ivec2 pos) const {
-    noise.white_noise->GenUniformGrid2D(floats.data(), pos.x, pos.y, PCS, PCS, freq_, seed_);
+    noise_.white_noise->GenUniformGrid2D(floats.data(), pos.x, pos.y, PCS, PCS, freq_, seed_);
   }
 };
 
@@ -364,42 +474,3 @@ struct Octree {
   void FreeChildNodes(uint32_t node_idx, uint32_t depth);
   std::array<NodeList<Node>, MaxDepth> nodes_;
 };
-
-// for (int quad = 0; quad < 4; quad++) {
-//   // int x_offset = (quad % 2) * (PCS / 2);
-//   // int z_offset = (quad / 2) * (PCS / 2);
-//   ivec2 quad_chunk_pos_xz = ivec2{pos.x + (off * (quad % 2)), pos.z + (off * (quad /
-//   2))}; ivec3 quad_hm_key = ivec3{quad_chunk_pos_xz.x, quad_chunk_pos_xz.y, depth + 1};
-//
-//   auto it = height_maps.find(quad_hm_key);
-//   if (it == height_maps.end()) {
-//     it = height_maps.emplace(quad_hm_key, HeightMapFloats{}).first;
-//     // HeightMapFloats& quadrant_hm = it->second;
-//     // HeightMapFloats new_noise_map;
-//
-//     // FillNoise(new_noise_map, vec2{pos.x, pos.z} + vec2{quad_hm_key.x, quad_hm_key.y});
-//     // for (int z = 0, i = 0; z < PCS; z++) {
-//     //   for (int x = 0; x < PCS; x++, i++) {
-//     //     int x1 = (x / 2) + x_offset;
-//     //     int x2 = x1 + 1;
-//     //     int z1 = (z / 2) + z_offset;
-//     //     int z2 = z1 + 1;
-//     //
-//     //     // Clamp indices to avoid out-of-bounds
-//     //     x1 = std::min(x1, PCS - 1);
-//     //     x2 = std::min(x2, PCS - 1);
-//     //     z1 = std::min(z1, PCS - 1);
-//     //     z2 = std::min(z2, PCS - 1);
-//     //     float v1 = height_map[to_height_map_idx(x1, z1)];
-//     //     float v2 = height_map[to_height_map_idx(x2, z1)];
-//     //     float v3 = height_map[to_height_map_idx(x1, z2)];
-//     //     float v4 = height_map[to_height_map_idx(x2, z2)];
-//     //     float tx = (x % 2) / 2.f;
-//     //     float tz = (z % 2) / 2.f;
-//     //     float interpolated = (v1 * (1.f - tx) * (1.f - tz)) + (v2 * (1.f - tz) * tx) +
-//     //     //                          (v3 * (1.f - tx) * tz) + (v4 * tx * tz); //
-//     //     quadrant_hm[i] = interpolated + new_noise_map[i];
-//     //   }
-//     // }
-//   }
-// }

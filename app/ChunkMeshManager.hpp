@@ -46,13 +46,14 @@ class ChunkMeshManager {
 
   [[nodiscard]] size_t QuadCount() const { return quad_count_; }
 
+  VertexPool<ChunkDrawUniformData> chunk_quad_buffer_;
+
  private:
   friend struct VoxelRenderer;
   VoxelRenderer* renderer_{};
 
   size_t quad_count_{};
   std::vector<AsyncTransfer> transfers_;
-  VertexPool<ChunkDrawUniformData> chunk_quad_buffer_;
   tvk::AllocatedBuffer quad_index_buf_;
   tvk::AllocatedBuffer chunk_uniform_gpu_buf_;
 };

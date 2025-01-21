@@ -27,6 +27,9 @@
 
 #ifdef OCTREE_TEST
 #include "voxels/Octree.hpp"
+namespace {
+MeshOctree oct{};
+}  // namespace
 #endif
 
 namespace {
@@ -166,6 +169,12 @@ void OnEvent(const SDL_Event& e) {
     } else if (sym == SDLK_F10) {
       RestartWorld();
     }
+#ifdef OCTREE_TEST
+    else if (sym == SDLK_F9) {
+      oct.Reset();
+      // update = false;
+    }
+#endif
   } else if (e.type == SDL_EVENT_KEY_UP) {
     Input::SetKeyPressed(e.key.key, false);
   } else if (e.type == SDL_EVENT_QUIT) {
@@ -278,7 +287,6 @@ int main() {
   static AutoCVarInt world_update_sleep_time("world.update_sleep_time",
                                              "World Update Sleep Time MS", 1000);
 #ifdef OCTREE_TEST
-  MeshOctree oct{};
   oct.Init();
   // oct.Update(ivec3{0});
 #else
@@ -312,13 +320,17 @@ int main() {
       std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<int>(fake_delay.Get())));
     }
     Update(dt);
+#ifdef OCTREE_TEST
     oct.Update(main_cam.position);
+#endif
 
     if (draw_imgui) {
       ZoneScopedN("ImGui");
       window.StartImGuiFrame();
       DrawImGui(dt);
+#ifdef OCTREE_TEST
       oct.OnImGui();
+#endif
       window.EndImGuiFrame();
     }
 

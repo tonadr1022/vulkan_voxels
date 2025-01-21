@@ -40,7 +40,17 @@ class DynamicBuffer {
  public:
   DynamicBuffer() = default;
 
-  void Init(uint32_t size_bytes, uint32_t alignment) {
+  void PrintHandles() {
+    for (auto i = 0u; i < NumActiveAllocs(); i++) {
+      auto handle = allocs_[i].handle;
+      fmt::print("{} ", handle);
+    }
+    fmt::println("");
+  }
+
+  void Init(uint32_t size_bytes, uint32_t alignment, uint32_t element_reserve_count) {
+    free_handles_.reserve(element_reserve_count);
+    allocs_.reserve(element_reserve_count);
     alignment_ = alignment;
     // align the size
     size_bytes += (alignment_ - (size_bytes % alignment_)) % alignment_;
@@ -114,6 +124,7 @@ class DynamicBuffer {
     }
 
     ++num_active_allocs_;
+    max_seen_active_allocs_ = std::max(max_seen_active_allocs_, num_active_allocs_);
     offset = new_alloc.offset;
     return new_alloc.handle;
   }
@@ -142,17 +153,20 @@ class DynamicBuffer {
   }
 
   [[nodiscard]] uint32_t NumActiveAllocs() const { return num_active_allocs_; }
+  [[nodiscard]] uint32_t MaxSeenActiveAllocs() const { return max_seen_active_allocs_; }
 
  private:
   uint32_t alignment_{0};
   uint32_t next_handle_{1};
   uint32_t num_active_allocs_{0};
+  uint32_t max_seen_active_allocs_{0};
 
   std::vector<uint32_t> free_handles_;
   uint32_t GetHandle() {
     if (!free_handles_.empty()) {
       auto h = free_handles_.back();
       free_handles_.pop_back();
+      EASSERT(h);
       return h;
     }
     return next_handle_++;
@@ -295,20 +309,34 @@ struct VertexPool {
 
  private:
   std::mutex mtx_;
+  uint32_t curr_draw_info_copy_size_{};
 
  public:
   void CopyDrawsToStaging() {
     ZoneScoped;
     std::lock_guard<std::mutex> lock(mtx_);
     auto& allocs = draw_cmd_allocator.Allocs();
-    memcpy(draw_infos_staging.data, allocs.data(), sizeof(Allocation<UserT>) * allocs.size());
+    auto active_size_bytes = sizeof(Allocation<UserT>) * draw_cmd_allocator.Allocs().size();
+    curr_draw_info_copy_size_ = active_size_bytes;
+    memcpy(draw_infos_staging.data, allocs.data(), active_size_bytes);
+    if (draw_cmd_allocator.MaxSeenActiveAllocs() > draw_cmd_allocator.Allocs().size()) {
+      auto empty_space_size =
+          sizeof(Allocation<UserT>) *
+          (draw_cmd_allocator.MaxSeenActiveAllocs() - draw_cmd_allocator.Allocs().size());
+      EASSERT(empty_space_size + active_size_bytes <= draw_infos_staging.size);
+      memset(static_cast<uint8_t*>(draw_infos_staging.data) + active_size_bytes, 0,
+             empty_space_size);
+      curr_draw_info_copy_size_ += empty_space_size;
+    }
   }
 
   void CopyDrawsStagingToGPU(VkCommandBuffer cmd) {
     std::lock_guard<std::mutex> lock(mtx_);
-    VkBufferCopy copy{};
-    copy.size = sizeof(Allocation<UserT>) * draw_cmd_allocator.Allocs().size();
-    vkCmdCopyBuffer(cmd, draw_infos_staging.buffer, draw_infos_gpu_buf.buffer, 1, &copy);
+    if (curr_draw_info_copy_size_) {
+      VkBufferCopy copy{};
+      copy.size = curr_draw_info_copy_size_;
+      vkCmdCopyBuffer(cmd, draw_infos_staging.buffer, draw_infos_gpu_buf.buffer, 1, &copy);
+    }
   }
 
   void ResizeBuffers(tvk::DeletionQueue& del_queue) {
@@ -316,7 +344,8 @@ struct VertexPool {
     std::lock_guard<std::mutex> lock(mtx_);
     EASSERT(draw_infos_staging.size && draw_infos_gpu_buf.size);
     EASSERT(draw_infos_staging.size == draw_infos_gpu_buf.size);
-    if (draw_cmd_allocator.Allocs().size() > draw_infos_staging.size / sizeof(Allocation<UserT>)) {
+    if (draw_cmd_allocator.MaxSeenActiveAllocs() >
+        draw_infos_staging.size / sizeof(Allocation<UserT>)) {
       auto old_size = draw_infos_staging.size;
       auto old = draw_infos_staging;
       auto old_gpu = draw_infos_gpu_buf;
@@ -330,7 +359,7 @@ struct VertexPool {
           VMA_MEMORY_USAGE_GPU_ONLY);
       draw_infos_staging = tvk::Allocator::Get().CreateStagingBuffer(new_size);
     }
-    if (draw_cmd_allocator.Allocs().size() >
+    if (draw_cmd_allocator.MaxSeenActiveAllocs() >
         draw_infos_gpu_buf.size / sizeof(VkDrawIndexedIndirectCommand)) {
       auto old = draw_infos_gpu_buf;
       del_queue.PushFunc([old]() { tvk::Allocator::Get().DestroyBuffer(old); });
@@ -357,7 +386,7 @@ struct VertexPool {
             uint32_t init_max_draw_cmds) {
     ZoneScoped;
     std::lock_guard<std::mutex> lock(mtx_);
-    draw_cmd_allocator.Init(size_bytes, alignment);
+    draw_cmd_allocator.Init(size_bytes, alignment, 1000);
 
     quad_gpu_buf = tvk::Allocator::Get().CreateBuffer(
         size_bytes, device_buffer_usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
@@ -386,11 +415,11 @@ struct VertexPool {
     std::lock_guard<std::mutex> lock(mtx_);
     EASSERT(draw_cmds_count >= handles.size());
     draw_cmds_count -= handles.size();
-    uint32_t freed = 0;
+    uint32_t freed_size = 0;
     for (auto h : handles) {
-      freed += draw_cmd_allocator.Free(h);
+      freed_size += draw_cmd_allocator.Free(h);
     }
-    return freed;
+    return freed_size;
   }
   // returns num bytes freed
   uint32_t FreeMesh(uint32_t handle) {
@@ -403,7 +432,6 @@ struct VertexPool {
   uint32_t AddMesh(size_t copy_idx, UserT user_data) {
     ZoneScoped;
     std::lock_guard<std::mutex> lock(mtx_);
-    // fmt::println("ADD MESH copy_idx {}", copy_idx);
     VkBufferCopy copy;
     vertex_staging.AddInUseCopy(copy_idx);
     vertex_staging.GetBlock(copy_idx, copy.srcOffset, copy.size);
