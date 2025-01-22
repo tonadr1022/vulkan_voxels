@@ -41,7 +41,7 @@ class DynamicBuffer {
   DynamicBuffer() = default;
 
   void PrintHandles() {
-    for (auto i = 0u; i < NumActiveAllocs(); i++) {
+    for (auto i = 0u; i < MaxSeenActiveAllocs(); i++) {
       auto handle = allocs_[i].handle;
       fmt::print("{} ", handle);
     }
@@ -124,7 +124,7 @@ class DynamicBuffer {
     }
 
     ++num_active_allocs_;
-    max_seen_active_allocs_ = std::max(max_seen_active_allocs_, num_active_allocs_);
+    max_seen_active_allocs_ = std::max<uint32_t>(max_seen_active_allocs_, allocs_.size());
     offset = new_alloc.offset;
     return new_alloc.handle;
   }
@@ -323,10 +323,12 @@ struct VertexPool {
       auto empty_space_size =
           sizeof(Allocation<UserT>) *
           (draw_cmd_allocator.MaxSeenActiveAllocs() - draw_cmd_allocator.Allocs().size());
-      EASSERT(empty_space_size + active_size_bytes <= draw_infos_staging.size);
-      memset(static_cast<uint8_t*>(draw_infos_staging.data) + active_size_bytes, 0,
-             empty_space_size);
-      curr_draw_info_copy_size_ += empty_space_size;
+      if (empty_space_size > 0) {
+        EASSERT(empty_space_size + active_size_bytes <= draw_infos_staging.size);
+        memset(static_cast<uint8_t*>(draw_infos_staging.data) + active_size_bytes, 0,
+               empty_space_size);
+        curr_draw_info_copy_size_ += empty_space_size;
+      }
     }
   }
 

@@ -51,30 +51,8 @@ void Save(const std::string& path, const T& data) {
 
 }  // namespace loader
 
-struct Settings {
-  int radius{30};
-  void Load([[maybe_unused]] const std::string& path) {
-    loader::Load(path, *this);
-    auto& sys = CVarSystem::Get();
-    sys.CreateIntCVar("world.initial_load_radius", "initial load radius of world", radius, radius);
-  }
-  void Save(const std::string& path) {
-    auto& sys = CVarSystem::Get();
-    radius = *sys.GetIntCVar("world.initial_load_radius");
-    loader::Save(path, *this);
-  }
-} settings;
-
 std::unique_ptr<VoxelWorld> world;
 void RestartWorld() { world->Reset(); }
-void InitWorld() {
-  if (world) {
-    world->Shutdown();
-  }
-  world = std::make_unique<VoxelWorld>();
-  world->Init();
-  world->GenerateWorld(*CVarSystem::Get().GetIntCVar("world.initial_load_radius"));
-}
 VoxelRenderer renderer;
 Window window;
 bool should_quit = false;
@@ -87,6 +65,14 @@ vec3 sun_color{1, 1, 1};
 vec3 sun_dir{0, -2, -1};
 vec3 ambient_color{0.1, 0.1, 0.1};
 
+void InitWorld() {
+  if (world) {
+    world->Shutdown();
+  }
+  world = std::make_unique<VoxelWorld>();
+  world->Init();
+  world->GenerateWorld(main_cam.position);
+}
 AutoCVarFloat move_speed("camera.speed", "movement speed", 400.f, CVarFlags::EditFloatDrag);
 AutoCVarFloat default_move_speed("camera.default_speed", "default movement speed", 200.f,
                                  CVarFlags::EditFloatDrag);
@@ -264,8 +250,7 @@ constexpr int MaxMeshTasks = 256;
 }  // namespace
 
 int main() {
-  const char* settings_path = RESOURCE_DIR PATH_SEP "config.bin";
-  settings.Load(settings_path);
+  // const char* settings_path = RESOURCE_DIR PATH_SEP "config.bin";
   FixedSizePtrPool<MeshAlgData> mesh_alg_pool;
   FixedSizePool<MesherOutputData> mesh_data_pool;
   mesh_alg_pool.Init(MaxMeshTasks);
@@ -293,7 +278,7 @@ int main() {
   InitWorld();
   auto f = std::thread([]() {
     while (!should_quit) {
-      world->Update();
+      world->Update(main_cam.position);
       std::this_thread::sleep_for(std::chrono::nanoseconds(world_update_sleep_time.Get()));
     }
   });
@@ -360,5 +345,4 @@ int main() {
 #endif
 
   renderer.Cleanup();
-  settings.Save(settings_path);
 }

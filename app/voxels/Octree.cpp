@@ -162,8 +162,8 @@ void MeshOctree::FreeChildren(std::vector<uint32_t>& meshes_to_free, uint32_t no
     if (curr_depth != depth) {
       if (node->mesh_handle) {
         meshes_to_free.emplace_back(node->mesh_handle);
-        // fmt::println("freeing mesh {} , {} {}, pos {} {} {}", node->mesh_handle, curr_depth,
-        //              curr_idx, curr_pos.x, curr_pos.y, curr_pos.z);
+        // fmt::println("freeing mesh {} ,depth {}, pos {} {} {}", node->mesh_handle, curr_depth,
+        //              curr_pos.x, curr_pos.y, curr_pos.z);
         node->mesh_handle = 0;
       }
       FreeNode(curr_depth, curr_idx);
@@ -267,7 +267,9 @@ void MeshOctree::Update(vec3 cam_pos) {
       }
     }
   }
+
   if (meshes_to_free_.size()) {
+    // ChunkMeshManager::Get().chunk_quad_buffer_.draw_cmd_allocator.PrintHandles();
     ChunkMeshManager::Get().FreeMeshes(meshes_to_free_);
     meshes_to_free_.clear();
   }
@@ -285,7 +287,8 @@ void MeshOctree::Update(vec3 cam_pos) {
         if (pos.y + chunk_len <= hm.range.x || pos.y >= hm.range.y) {
           return;
         }
-        gen::FillChunkNoCheck(chunk.grid, chunk.pos, hm, [](int, int, int) { return 128; });
+        int c = depth * 30;
+        gen::FillChunkNoCheck(chunk.grid, chunk.pos, hm, [c](int, int, int) { return c; });
         // gen::FillChunk(chunk.grid, pos * CS, hm, [](int, int, int) { return 128; });
       };
       fill_chunk();
@@ -300,7 +303,7 @@ void MeshOctree::Update(vec3 cam_pos) {
         ChunkMeshUpload u = PrepareChunkMeshUpload(alg_data, data, pos, depth);
         chunk_mesh_uploads_.emplace_back(u);
         chunk_mesh_node_keys_.emplace_back(NodeKey{.depth = depth, .idx = node_idx});
-        // fmt::println("meshing {} {} {} depth {}", pos.x, pos.y, pos.z, depth, node_idx);
+        // fmt::println("meshing {} {} {} depth {}", pos.x, pos.y, pos.z, depth);
       }
     }
   }
@@ -312,15 +315,12 @@ void MeshOctree::Update(vec3 cam_pos) {
     ChunkMeshManager::Get().UploadChunkMeshes(chunk_mesh_uploads_, mesh_handles_);
     for (size_t i = 0; i < chunk_mesh_node_keys_.size(); i++) {
       GetNode(chunk_mesh_node_keys_[i])->mesh_handle = mesh_handles_[i];
-      // auto& pos = chunk_mesh_uploads[i].pos;
-      // fmt::println("meshing {} {} {}, handle {}, mult {}", pos.x, pos.y, pos.z,
-      // mesh_handles[i],
-      //              chunk_mesh_uploads[i].mult);
     }
   }
   mesh_handles_.clear();
   chunk_mesh_node_keys_.clear();
   chunk_mesh_uploads_.clear();
+  Validate();
 }
 
 void MeshOctree::OnImGui() const {
@@ -328,6 +328,7 @@ void MeshOctree::OnImGui() const {
     for (int i = 0; i <= MaxDepth; i++) {
       ImGui::Text("%d: %zu", i, nodes_[i].nodes.size() - nodes_[i].free_list.size());
     }
+    ImGui::Text("height maps: %zu", height_maps_.size());
   }
   ImGui::End();
 }
@@ -385,7 +386,7 @@ HeightMapData& MeshOctree::GetHeightMap(int x, int z, int lod) {
   HeightMapFloats floats;
   noise_.fbm->GenUniformGrid2D(floats.data(), x / scale, z / scale, PCS, PCS, adj_freq, seed_);
 
-  static AutoCVarInt maxheight("terrain.maxheight", "max height", 128);
+  static AutoCVarInt maxheight("terrain.maxheight", "max height", 62);
   gen::NoiseToHeights(floats, hm, {0, maxheight.Get() / scale});
 
   return res.first->second;

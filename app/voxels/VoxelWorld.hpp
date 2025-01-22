@@ -53,13 +53,13 @@ struct TaskPool {
   }
 };
 struct VoxelWorld {
-  void Update();
-  vec3 position;
+  void Update(vec3 cam_pos);
+  ivec3 CamPosToChunkPos(vec3 cam_pos);
   void Init();
   void Reset();
-  void GenerateWorld(int radius);
+  void GenerateWorld(vec3 cam_pos);
   void Shutdown();
-  void DrawImGuiStats() const;
+  void DrawImGuiStats();
 
  private:
   void ResetPools();
@@ -102,6 +102,9 @@ struct VoxelWorld {
   int prev_world_start_finished_chunks_{};
   float world_load_time_{};
 
+  vec3 curr_cam_pos_{};
+  vec3 prev_cam_pos_{};
+  int radius_{1};
   void ResetInternal();
   std::mutex reset_mtx_;
   bool initalized_{false};

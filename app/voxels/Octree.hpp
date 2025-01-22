@@ -103,7 +103,7 @@ struct MeshOctree {
   int seed_{1};
   std::vector<NodeQueueItem> to_mesh_queue_;
   gen::FBMNoise noise_;
-  static constexpr int MaxDepth = 2;
+  static constexpr int MaxDepth = 4;
   std::array<int, MaxDepth + 1> lod_bounds_;
   std::vector<ChunkMeshUpload> chunk_mesh_uploads_;
   struct NodeKey {
