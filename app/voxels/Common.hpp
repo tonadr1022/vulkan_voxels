@@ -28,6 +28,7 @@ using ChunkPaddedHeightMapFloats = HeightMapFloats;
 using ChunkPaddedHeightMapGrid = HeightMapGrid<PCS>;
 
 struct HeightMapData {
+  HeightMapData() = default;
   HeightMapGrid<PCS> heights;
   ivec2 range;
 };

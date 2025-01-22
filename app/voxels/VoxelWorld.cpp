@@ -55,13 +55,13 @@ void VoxelWorld::Update() {
       std::max(stats_.max_terrain_done_size, terrain_tasks_.done_tasks.size_approx());
   stats_.max_pool_size = std::max(stats_.max_pool_size, mesher_output_data_pool_.Size());
   stats_.max_pool_size2 = std::max(stats_.max_pool_size2, mesh_alg_pool_.allocs);
-  if (tot_chunks_loaded != prev_world_start_finished_chunks_ &&
-      tot_chunks_loaded == world_gen_chunk_payload_) {
+  if (tot_chunks_loaded_ != prev_world_start_finished_chunks_ &&
+      tot_chunks_loaded_ == world_gen_chunk_payload_) {
     world_load_time_ = world_start_timer_.ElapsedMS();
     fmt::println("loaded in: {} ms", world_load_time_);
   }
 
-  prev_world_start_finished_chunks_ = tot_chunks_loaded;
+  prev_world_start_finished_chunks_ = tot_chunks_loaded_;
 
   {
     ZoneScopedN("finished terrain tasks and enqueue mesh");
@@ -77,7 +77,7 @@ void VoxelWorld::Update() {
         task.chunk_handle = terrain_response.grid;
         mesh_tasks_.to_complete.emplace(task);
       } else {
-        tot_chunks_loaded++;
+        tot_chunks_loaded_++;
         chunk_pool_.Free(terrain_response.grid);
       }
     }
@@ -91,7 +91,7 @@ void VoxelWorld::Update() {
       auto& chunk = *chunk_pool_.Get(response.chunk_handle);
       if (chunk.grid.mask.AllSet()) {
         mesh_tasks_.to_complete.pop();
-        tot_chunks_loaded++;
+        tot_chunks_loaded_++;
         continue;
       }
       response.alg_data_handle = mesh_alg_pool_.Alloc();
@@ -150,7 +150,7 @@ void VoxelWorld::Update() {
       chunk_pool_.Free(mesh_task.chunk_handle);
       mesh_alg_pool_.Free(mesh_task.alg_data_handle);
       mesher_output_data_pool_.Free(mesh_task.output_data_handle);
-      tot_chunks_loaded++;
+      tot_chunks_loaded_++;
     }
   }
 
@@ -240,7 +240,7 @@ void VoxelWorld::DrawImGuiStats() const {
   }
   ImGui::Text("Quad count: %ld, quad mem size: %ld mb", ChunkMeshManager::Get().QuadCount(),
               ChunkMeshManager::Get().QuadCount() * ChunkMeshManager::QuadSize / 1024 / 1024);
-  ImGui::Text("done: %d", tot_chunks_loaded);
+  ImGui::Text("done: %d", tot_chunks_loaded_);
   ImGui::Text("tot chunks: %d", world_gen_chunk_payload_);
   ImGui::Text("Final world load time: %f", world_load_time_);
   ImGui::Text("meshes: %ld, quads: %ld, avg mesh quads: %ld", stats_.tot_meshes, stats_.tot_quads,
@@ -254,7 +254,7 @@ void VoxelWorld::Shutdown() {
 
 void VoxelWorld::ResetInternal() {
   thread_pool.wait();
-  tot_chunks_loaded = 0;
+  tot_chunks_loaded_ = 0;
   prev_world_start_finished_chunks_ = -1;
   world_gen_chunk_payload_ = 0;
   ChunkMeshManager::Get().FreeMeshes(mesh_handles_);

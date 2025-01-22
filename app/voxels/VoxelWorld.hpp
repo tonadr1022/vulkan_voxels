@@ -98,7 +98,7 @@ struct VoxelWorld {
 
   Timer world_start_timer_;
   int world_gen_chunk_payload_{};
-  int tot_chunks_loaded{};
+  int tot_chunks_loaded_{};
   int prev_world_start_finished_chunks_{};
   float world_load_time_{};
 
