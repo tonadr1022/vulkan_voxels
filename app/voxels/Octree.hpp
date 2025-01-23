@@ -105,7 +105,7 @@ struct MeshOctree {
   gen::FBMNoise noise_;
   static constexpr int AbsoluteMaxDepth = 25;
   static constexpr uint32_t MaxChunks = 20000;
-  uint32_t max_depth_ = 3;
+  uint32_t max_depth_ = 10;
   std::vector<uint32_t> lod_bounds_;
   std::vector<ChunkMeshUpload> chunk_mesh_uploads_;
   struct NodeKey {

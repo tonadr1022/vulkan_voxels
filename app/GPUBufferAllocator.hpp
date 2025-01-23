@@ -20,6 +20,10 @@ struct Allocation {
   uint32_t pad;
   UT user_data;
   explicit Allocation(UT data = {}) : user_data(data) {}
+  bool operator==(const Allocation& other) const {
+    return handle == other.handle && offset == other.offset && size_bytes == other.size_bytes &&
+           pad == other.pad && user_data == other.user_data;
+  }
 };
 
 template <>
@@ -482,10 +486,12 @@ struct VertexPool {
     ZoneScoped;
     std::lock_guard<std::mutex> lock(mtx_);
     draws_dirty_ = false;
-    vkCmdCopyBuffer(cmd, vertex_staging.Staging().buffer, quad_gpu_buf.buffer, copies.size(),
-                    copies.data());
-    copies.clear();
-    vertex_staging.Reset();
+    if (copies.size()) {
+      vkCmdCopyBuffer(cmd, vertex_staging.Staging().buffer, quad_gpu_buf.buffer, copies.size(),
+                      copies.data());
+      copies.clear();
+      vertex_staging.Reset();
+    }
   }
 
   [[nodiscard]] size_t CurrCopyOperationSize() const { return curr_copies_tot_size_bytes; }

@@ -74,8 +74,6 @@ void VoxelRenderer::Draw(bool draw_imgui) {
   }
   WaitForMainRenderFence();
 
-  ChunkMeshManager::Get().CopyDrawBuffers();
-  ChunkMeshManager::Get().Update();
   FlushFrameData();
   if (!AcquireNextImage()) {
     return;
@@ -134,6 +132,24 @@ void VoxelRenderer::Draw(bool draw_imgui) {
                     VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT),
   };
   PipelineBarrier(cmd, 0, buffer_barriers, {});
+
+  {
+    VkBufferMemoryBarrier2 buffer_barriers[] = {
+        BufferBarrier(chunk_vert_pool.quad_gpu_buf.buffer, graphics_queue_family_,
+                      VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, 0, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                      VK_ACCESS_2_TRANSFER_WRITE_BIT),
+    };
+    PipelineBarrier(cmd, 0, buffer_barriers, {});
+    // chunk_vert_pool.ExecuteCopy(cmd);
+    {
+      VkBufferMemoryBarrier2 buffer_barriers[] = {
+          BufferBarrier(chunk_vert_pool.quad_gpu_buf.buffer, graphics_queue_family_,
+                        VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                        VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT),
+      };
+      PipelineBarrier(cmd, 0, buffer_barriers, {});
+    }
+  }
 
   tvk::ImageAndState* img_barriers[] = {&draw_img_state, &depth_img_state};
   PipelineBarrier(cmd, 0, img_barriers);
@@ -346,6 +362,7 @@ void VoxelRenderer::PrepareAndCullChunks(VkCommandBuffer cmd) {
       };
       PipelineBarrier(cmd, 0, buffer_barriers, {});
     }
+    ChunkMeshManager::Get().CopyDrawBuffers();
     chunk_vert_pool.CopyDrawsStagingToGPU(cmd);
 
     // VkBufferCopy copy{};
@@ -427,7 +444,7 @@ void VoxelRenderer::PrepareAndCullChunks(VkCommandBuffer cmd) {
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                           chunk_cull_pipeline_.pipeline->layout, 0, 1, &s, 0, nullptr);
 
-  vkCmdDispatch(cmd, (chunk_vert_pool.draw_cmds_count + 63) / 64, 1, 1);
+  vkCmdDispatch(cmd, (chunk_vert_pool.draw_cmd_allocator.Allocs().size() + 63) / 64, 1, 1);
   {
     VkBufferMemoryBarrier2 buffer_barriers[] = {
         BufferBarrier(chunk_vert_pool.draw_cmd_gpu_buf.buffer, graphics_queue_family_,

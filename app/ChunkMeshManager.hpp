@@ -20,6 +20,7 @@ struct ChunkUniformData {
 struct ChunkDrawUniformData {
   ivec4 position;
   uint vertex_counts[8];
+  bool operator==(const ChunkDrawUniformData& other) const { return position == other.position; }
 };
 
 using ChunkAllocHandle = uint32_t;
