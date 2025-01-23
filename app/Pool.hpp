@@ -1,6 +1,67 @@
 #pragma once
 
 template <typename T>
+struct ObjPool {
+  void Init(uint32_t size) {
+    data.resize(size);
+    free_list.resize(size);
+    InitInternal();
+  }
+
+  uint32_t Alloc() {
+    ZoneScoped;
+    if (free_list.empty()) {
+      fmt::println("Resizing pool, new size: {}", data.size() * 1.5);
+      auto old_size = data.size();
+      data.resize(data.size() * 1.5);
+      auto additional = data.size() - old_size;
+      free_list.reserve(free_list.size() + additional);
+      for (size_t i = old_size; i < data.size(); i++) {
+        free_list.emplace_back(i);
+      }
+    }
+    auto idx = free_list.back();
+    free_list.pop_back();
+    allocs++;
+    return idx;
+  }
+  T* Get(uint32_t handle) {
+    if (handle >= data.size()) {
+      fmt::println("out of bounds handle {}, size {}", handle, data.size());
+      EASSERT(handle < data.size());
+    }
+    return &data[handle];
+  }
+
+  void Free(uint32_t handle) {
+    allocs--;
+    data[handle] = {};
+    free_list.emplace_back(handle);
+  }
+
+  size_t Size() { return allocs; }
+
+  void Clear() {
+    data.clear();
+    data.resize(free_list.size());
+    InitInternal();
+  }
+  void ClearNoDealloc() { InitInternal(); }
+
+  size_t allocs{};
+  std::vector<T> data;
+  std::vector<uint32_t> free_list;
+
+ private:
+  void InitInternal() {
+    allocs = {};
+    for (uint32_t i = 0; i < free_list.size(); i++) {
+      free_list[i] = i;
+    }
+  }
+};
+
+template <typename T>
 struct PtrObjPool {
   void Init(uint32_t size) {
     data.resize(size);

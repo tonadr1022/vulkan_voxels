@@ -3,11 +3,11 @@
 #include <cstdint>
 
 #include "EAssert.hpp"
-#include "imgui.h"
+#include "Pool.hpp"
+#include "voxels/Types.hpp"
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/hash.hpp>
 
-#include "ChunkMeshManager.hpp"
 #include "voxels/Common.hpp"
 #include "voxels/Mesher.hpp"
 #include "voxels/Terrain.hpp"
@@ -48,7 +48,7 @@ struct MeshOctree {
   void Init();
 
   ChunkMeshUpload PrepareChunkMeshUpload(const MeshAlgData& alg_data, const MesherOutputData& data,
-                                         ivec3 pos, uint32_t depth);
+                                         ivec3 pos, uint32_t depth) const;
 
   void FreeChildren(std::vector<uint32_t>& meshes_to_free, uint32_t node_idx, uint32_t depth,
                     ivec3 pos);
@@ -56,7 +56,7 @@ struct MeshOctree {
   void Reset();
   void Update(vec3 cam_pos);
 
-  void OnImGui() const;
+  void OnImGui();
 
  private:
   // vec3 ChunkPosToAbsPos(ivec3 chunk_pos) { return vec3{chunk_pos} * vec3{PCS}; }
@@ -87,7 +87,7 @@ struct MeshOctree {
     //   leaf_mask = UINT8_MAX;
     // }
     std::array<uint32_t, 8> data;
-    uint32_t mesh_handle;
+    uint32_t chunk_state_handle;
     // TODO: refactor
     uint8_t leaf_mask;
   };
@@ -103,8 +103,10 @@ struct MeshOctree {
   int seed_{1};
   std::vector<NodeQueueItem> to_mesh_queue_;
   gen::FBMNoise noise_;
-  static constexpr int MaxDepth = 4;
-  std::array<int, MaxDepth + 1> lod_bounds_;
+  static constexpr int AbsoluteMaxDepth = 25;
+  static constexpr uint32_t MaxChunks = 20000;
+  uint32_t max_depth_ = 3;
+  std::vector<uint32_t> lod_bounds_;
   std::vector<ChunkMeshUpload> chunk_mesh_uploads_;
   struct NodeKey {
     uint32_t depth;
@@ -115,9 +117,23 @@ struct MeshOctree {
   std::vector<uint32_t> mesh_handles_;
   std::vector<uint32_t> meshes_to_free_;
   std::vector<NodeQueueItem> node_queue_;
-  std::array<NodeList<Node>, MaxDepth + 1> nodes_;
+  std::array<NodeList<Node>, AbsoluteMaxDepth + 1> nodes_;
   std::vector<NodeQueueItem> child_free_stack_;
   std::unordered_map<ivec3, HeightMapData> height_maps_;
+
+  struct ChunkState {
+    using DataT = uint8_t;
+    uint32_t mesh_handle{0};
+    DataT data{NeedsGenMeshingFlag};
+    [[nodiscard]] bool GetNeedsGenOrMeshing() const { return data & NeedsGenMeshingFlag; }
+    void SetNeedsGenOrMeshing(bool v) {
+      data ^= (-static_cast<DataT>(v) ^ data) & NeedsGenMeshingFlag;
+    }
+
+   private:
+    constexpr static DataT NeedsGenMeshingFlag = 1 << 0;
+  };
+  ObjPool<ChunkState> chunk_states_;
 
   void FreeNode(uint32_t depth, uint32_t idx) { nodes_[depth].Free(idx); }
   Node* GetNode(uint32_t depth, uint32_t idx) { return GetNode(NodeKey{depth, idx}); }
@@ -130,12 +146,13 @@ struct MeshOctree {
   }
 
   bool HasChildren(NodeKey node_key) { return GetNode(node_key)->leaf_mask != 0; }
-  uint32_t ChunkLenFromDepth(uint32_t depth) { return PCS * (1 << (MaxDepth - depth)); }
+  uint32_t ChunkLenFromDepth(uint32_t depth) { return PCS * (1 << (AbsoluteMaxDepth - depth)); }
   void FillNoise(HeightMapFloats& floats, ivec2 pos) const {
     noise_.white_noise->GenUniformGrid2D(floats.data(), pos.x, pos.y, PCS, PCS, freq_, seed_);
   }
   HeightMapData& GetHeightMap(int x, int z, int lod);
-  void Validate() const;
+  void UpdateLodBounds();
+  void Validate();
 };
 
 using VoxelData = uint8_t;

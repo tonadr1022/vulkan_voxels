@@ -3,10 +3,12 @@
 #include <cstdint>
 #include <cwchar>
 
+#include "ChunkMeshManager.hpp"
 #include "application/CVar.hpp"
+#include "imgui.h"
 
 namespace {
-AutoCVarFloat lod_thresh("terrain.lod_thresh", "lod threshold of terrain", 1.0);
+AutoCVarFloat lod_thresh("terrain.lod_thresh", "lod threshold of terrain", 10.0);
 
 uint8_t GetChildIdx(uvec3 pos, uint8_t curr_depth) {
   return (pos.y >> (Octree::MaxDepth - curr_depth - 1) & 1) << 2 |
@@ -107,29 +109,26 @@ void Octree::FreeChildNodes(uint32_t node_idx, uint32_t depth) {
   nodes_[depth].Free(node_idx);
 }
 void MeshOctree::Init() {
+  lod_bounds_.reserve(AbsoluteMaxDepth);
+  chunk_states_.Init(MaxChunks);
   noise_.Init(1, 0.005, 4);
   auto root = nodes_[0].AllocNode();
   EASSERT(root == 0);
+  GetNode(0, 0)->chunk_state_handle = chunk_states_.Alloc();
 
-  int k = 1;
-  for (auto& b : lod_bounds_) {
-    b = k * CS;
-    k *= 2;
-  }
-  std::ranges::reverse(lod_bounds_);
-
+  UpdateLodBounds();
   Update(ivec3{0});
 }
 
 ChunkMeshUpload MeshOctree::PrepareChunkMeshUpload(const MeshAlgData& alg_data,
                                                    const MesherOutputData& data, ivec3 pos,
-                                                   uint32_t depth) {
+                                                   uint32_t depth) const {
   uint32_t staging_copy_idx =
       ChunkMeshManager::Get().CopyChunkToStaging(data.vertices.data(), data.vertex_cnt);
   ChunkMeshUpload u{};
   u.staging_copy_idx = staging_copy_idx;
   u.pos = pos;
-  int m = MaxDepth - depth + 1;
+  int m = max_depth_ - depth + 1;
   u.mult = 1 << (m - 1);
   for (int i = 0; i < 6; i++) {
     u.counts[i] = alg_data.face_vertex_lengths[i];
@@ -144,7 +143,7 @@ void MeshOctree::FreeChildren(std::vector<uint32_t>& meshes_to_free, uint32_t no
     auto [curr_idx, curr_pos, curr_depth] = child_free_stack_.back();
     child_free_stack_.pop_back();
     auto* node = GetNode(curr_depth, curr_idx);
-    EASSERT(curr_depth != MaxDepth || node->leaf_mask == 0);
+    EASSERT(curr_depth != max_depth_ || node->leaf_mask == 0);
     int i = 0;
     for (int y = 0; y < 2; y++) {
       for (int z = 0; z < 2; z++) {
@@ -152,7 +151,7 @@ void MeshOctree::FreeChildren(std::vector<uint32_t>& meshes_to_free, uint32_t no
           if (node->IsSet(i)) {
             child_free_stack_.emplace_back(NodeQueueItem{
                 node->data[i],
-                pos + (ivec3{x, y, z} * static_cast<int>(GetOffset(MaxDepth - depth - 1))),
+                pos + (ivec3{x, y, z} * static_cast<int>(GetOffset(max_depth_ - depth - 1))),
                 curr_depth + 1});
           }
         }
@@ -160,11 +159,12 @@ void MeshOctree::FreeChildren(std::vector<uint32_t>& meshes_to_free, uint32_t no
     }
     node->ClearMask();
     if (curr_depth != depth) {
-      if (node->mesh_handle) {
-        meshes_to_free.emplace_back(node->mesh_handle);
-        // fmt::println("freeing mesh {} ,depth {}, pos {} {} {}", node->mesh_handle, curr_depth,
-        //              curr_pos.x, curr_pos.y, curr_pos.z);
-        node->mesh_handle = 0;
+      ChunkState* s = chunk_states_.Get(node->chunk_state_handle);
+      if (s->mesh_handle) {
+        meshes_to_free.emplace_back(s->mesh_handle);
+        fmt::println("freeing mesh {} ,depth {}, pos {} {} {}", s->mesh_handle, curr_depth,
+                     curr_pos.x, curr_pos.y, curr_pos.z);
+        s->mesh_handle = 0;
       }
       FreeNode(curr_depth, curr_idx);
     }
@@ -180,17 +180,18 @@ void MeshOctree::Reset() {
     node_q.pop_back();
     const auto* node = GetNode(depth, node_idx);
     EASSERT(node);
-    if (node->mesh_handle) {
-      to_free.emplace_back(node->mesh_handle);
-      if (depth < MaxDepth) {
+    ChunkState* s = chunk_states_.Get(node->chunk_state_handle);
+    if (s->mesh_handle) {
+      to_free.emplace_back(s->mesh_handle);
+      if (depth < max_depth_) {
         if (node->leaf_mask != 0) {
           fmt::println("failed depth {}, node_idx {}", depth, node_idx);
           EASSERT(node->leaf_mask == 0);
         }
       }
     } else {
-      if (depth < MaxDepth) {
-        int off = GetOffset(MaxDepth - depth - 1);
+      if (depth < max_depth_) {
+        int off = GetOffset(max_depth_ - depth - 1);
         int i = 0;
         for (int y = 0; y < 2; y++) {
           for (int z = 0; z < 2; z++) {
@@ -218,32 +219,39 @@ void MeshOctree::Reset() {
 }
 
 void MeshOctree::Update(vec3 cam_pos) {
+  ZoneScoped;
   EASSERT(node_queue_.empty());
   node_queue_.push_back(NodeQueueItem{0, vec3{0}, 0});
   while (!node_queue_.empty()) {
     auto [node_idx, pos, depth] = node_queue_.back();
     node_queue_.pop_back();
-    ivec3 chunk_center = pos + ((1 << (MaxDepth - depth)) * HALFCS);
+    ivec3 chunk_center = pos + ((1 << (max_depth_ - depth)) * HALFCS);
     // ivec3 chunk_center = pos + (1 << (MaxDepth - depth)) * HALFCS;
     // fmt::println("node pos {} {} {}, depth {}, cs {} {} {}", pos.x, pos.y, pos.z, depth,
     //              chunk_center.x, chunk_center.y, chunk_center.z);
     // mesh if far away enough not to split
     if (glm::distance(vec3(chunk_center), cam_pos) >=
             (lod_bounds_[depth] * lod_thresh.GetFloat()) ||
-        depth == MaxDepth) {
-      // get rid of children of this node since it's a mesh now
-      if (depth < MaxDepth) {
-        FreeChildren(meshes_to_free_, node_idx, depth, pos);
+        depth == max_depth_) {
+      auto* node = GetNode(depth, node_idx);
+      ChunkState* s = chunk_states_.Get(node->chunk_state_handle);
+      if (s->GetNeedsGenOrMeshing()) {
+        if (depth < max_depth_) {
+          FreeChildren(meshes_to_free_, node_idx, depth, pos);
+        }
+        s->SetNeedsGenOrMeshing(false);
+        to_mesh_queue_.emplace_back(NodeQueueItem{node_idx, pos, depth});
       }
-      to_mesh_queue_.emplace_back(NodeQueueItem{node_idx, pos, depth});
-    } else if (depth < MaxDepth) {
-      int off = GetOffset(MaxDepth - depth - 1);
+    } else if (depth < max_depth_) {
+      int off = GetOffset(max_depth_ - depth - 1);
 
       // TODO: refactor
       auto* node = nodes_[depth].Get(node_idx);
-      if (node->mesh_handle) {
-        meshes_to_free_.emplace_back(node->mesh_handle);
-        node->mesh_handle = 0;
+      ChunkState* s = chunk_states_.Get(node->chunk_state_handle);
+      if (s->mesh_handle) {
+        meshes_to_free_.emplace_back(s->mesh_handle);
+        s->SetNeedsGenOrMeshing(true);
+        s->mesh_handle = 0;
       }
 
       // fmt::println("{} {} {}", pos.x, pos.z, depth);
@@ -257,8 +265,14 @@ void MeshOctree::Update(vec3 cam_pos) {
             e.depth = depth + 1;
             e.pos = pos + ivec3{x, y, z} * off;
             auto* node = nodes_[depth].Get(node_idx);
-            uint32_t child_node_idx = node->IsSet(i) ? node->data[i] : nodes_[e.depth].AllocNode();
-            node->SetData(i, child_node_idx);
+            uint32_t child_node_idx;
+            if (node->IsSet(i)) {
+              child_node_idx = node->data[i];
+            } else {
+              child_node_idx = nodes_[e.depth].AllocNode();
+              GetNode(e.depth, child_node_idx)->chunk_state_handle = chunk_states_.Alloc();
+              node->SetData(i, child_node_idx);
+            }
             e.node_idx = child_node_idx;
             node_queue_.emplace_back(e);
             i++;
@@ -268,15 +282,13 @@ void MeshOctree::Update(vec3 cam_pos) {
     }
   }
 
-  if (meshes_to_free_.size()) {
-    // ChunkMeshManager::Get().chunk_quad_buffer_.draw_cmd_allocator.PrintHandles();
-    ChunkMeshManager::Get().FreeMeshes(meshes_to_free_);
-    meshes_to_free_.clear();
-  }
-
-  for (auto [node_idx, pos, depth] : to_mesh_queue_) {
-    auto* node = GetNode(depth, node_idx);
-    if (!node->mesh_handle) {
+  // fmt::println("no skip");
+  // ChunkMeshManager::Get().chunk_quad_buffer_.draw_cmd_allocator.PrintHandles();
+  // fmt::println("skip");
+  // ChunkMeshManager::Get().chunk_quad_buffer_.draw_cmd_allocator.PrintHandles(true);
+  {
+    ZoneScopedN("fill chunk and mesh");
+    for (auto [node_idx, pos, depth] : to_mesh_queue_) {
       Chunk chunk{pos};
       chunk.grid = {};
 
@@ -289,12 +301,11 @@ void MeshOctree::Update(vec3 cam_pos) {
         }
         int c = depth * 30;
         gen::FillChunkNoCheck(chunk.grid, chunk.pos, hm, [c](int, int, int) { return c; });
-        // gen::FillChunk(chunk.grid, pos * CS, hm, [](int, int, int) { return 128; });
       };
       fill_chunk();
 
-      // gen::FillSphere<PCS>(chunk.grid, depth * 30);
-      // gen::FillVisibleCube(chunk.grid, 8, depth * 30);
+      gen::FillSphere<PCS>(chunk.grid, depth * 30);
+      gen::FillVisibleCube(chunk.grid, 8, depth * 30);
       MeshAlgData alg_data{};
       MesherOutputData data{};
       alg_data.mask = &chunk.grid.mask;
@@ -303,18 +314,38 @@ void MeshOctree::Update(vec3 cam_pos) {
         ChunkMeshUpload u = PrepareChunkMeshUpload(alg_data, data, pos, depth);
         chunk_mesh_uploads_.emplace_back(u);
         chunk_mesh_node_keys_.emplace_back(NodeKey{.depth = depth, .idx = node_idx});
-        // fmt::println("meshing {} {} {} depth {}", pos.x, pos.y, pos.z, depth);
+        fmt::println("meshing {} {} {} depth {}", pos.x, pos.y, pos.z, depth);
       }
     }
+    to_mesh_queue_.clear();
   }
-  to_mesh_queue_.clear();
 
   EASSERT(chunk_mesh_node_keys_.size() == chunk_mesh_uploads_.size());
   if (chunk_mesh_uploads_.size()) {
     mesh_handles_.resize(chunk_mesh_uploads_.size());
     ChunkMeshManager::Get().UploadChunkMeshes(chunk_mesh_uploads_, mesh_handles_);
+    fmt::print("uploaded mesh handles: ");
     for (size_t i = 0; i < chunk_mesh_node_keys_.size(); i++) {
-      GetNode(chunk_mesh_node_keys_[i])->mesh_handle = mesh_handles_[i];
+      chunk_states_.Get(GetNode(chunk_mesh_node_keys_[i])->chunk_state_handle)->mesh_handle =
+          mesh_handles_[i];
+      fmt::print("{} ", mesh_handles_[i]);
+    }
+    fmt::println("");
+  }
+  {
+    ZoneScopedN("free meshes");
+    if (meshes_to_free_.size()) {
+      fmt::println("before free");
+      ChunkMeshManager::Get().chunk_quad_buffer_.draw_cmd_allocator.PrintHandles(false, true);
+      fmt::print("freeing: ");
+      for (auto h : meshes_to_free_) {
+        fmt::print("{} ", h);
+      }
+      fmt::println("");
+      ChunkMeshManager::Get().FreeMeshes(meshes_to_free_);
+      fmt::println("after free");
+      ChunkMeshManager::Get().chunk_quad_buffer_.draw_cmd_allocator.PrintHandles(false, true);
+      meshes_to_free_.clear();
     }
   }
   mesh_handles_.clear();
@@ -323,17 +354,22 @@ void MeshOctree::Update(vec3 cam_pos) {
   Validate();
 }
 
-void MeshOctree::OnImGui() const {
+void MeshOctree::OnImGui() {
   if (ImGui::Begin("Voxel Octree")) {
-    for (int i = 0; i <= MaxDepth; i++) {
+    for (uint32_t i = 0; i <= max_depth_; i++) {
       ImGui::Text("%d: %zu", i, nodes_[i].nodes.size() - nodes_[i].free_list.size());
     }
     ImGui::Text("height maps: %zu", height_maps_.size());
+    int d = max_depth_;
+    if (ImGui::DragInt("max depth", &d, 0, AbsoluteMaxDepth)) {
+      max_depth_ = d;
+      UpdateLodBounds();
+    }
   }
   ImGui::End();
 }
 
-void MeshOctree::Validate() const {
+void MeshOctree::Validate() {
   std::vector<NodeQueueItem> node_q;
   node_q.emplace_back(NodeQueueItem{0, vec3{0}, 0});
   while (node_q.size()) {
@@ -341,16 +377,16 @@ void MeshOctree::Validate() const {
     node_q.pop_back();
     const auto* node = GetNode(depth, node_idx);
     EASSERT(node);
-    if (node->mesh_handle) {
-      if (depth < MaxDepth) {
+    if (chunk_states_.Get(node->chunk_state_handle)->mesh_handle) {
+      if (depth < max_depth_) {
         if (node->leaf_mask != 0) {
           fmt::println("failed depth {}, node_idx {}", depth, node_idx);
           EASSERT(node->leaf_mask == 0);
         }
       }
     } else {
-      if (depth < MaxDepth) {
-        int off = GetOffset(MaxDepth - depth - 1);
+      if (depth < max_depth_) {
+        int off = GetOffset(max_depth_ - depth - 1);
         int i = 0;
         for (int y = 0; y < 2; y++) {
           for (int z = 0; z < 2; z++) {
@@ -379,7 +415,7 @@ HeightMapData& MeshOctree::GetHeightMap(int x, int z, int lod) {
   auto res = height_maps_.emplace(ivec3{x, z, lod}, HeightMapData{});
   HeightMapData& hm = res.first->second;
 
-  uint32_t scale = (1 << (MaxDepth - lod));
+  uint32_t scale = (1 << (max_depth_ - lod));
 
   static AutoCVarFloat freq("terrain.freq", "freq of terrain", 0.0005);
   float adj_freq = freq.GetFloat() * static_cast<float>(scale);
@@ -390,4 +426,13 @@ HeightMapData& MeshOctree::GetHeightMap(int x, int z, int lod) {
   gen::NoiseToHeights(floats, hm, {0, maxheight.Get() / scale});
 
   return res.first->second;
+}
+void MeshOctree::UpdateLodBounds() {
+  lod_bounds_.resize(max_depth_ + 1);
+  uint32_t k = 1;
+  for (auto& b : lod_bounds_) {
+    b = k * CS;
+    k *= 2;
+  }
+  std::ranges::reverse(lod_bounds_);
 }

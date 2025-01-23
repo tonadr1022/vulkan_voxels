@@ -411,6 +411,7 @@ void VoxelRenderer::PrepareAndCullChunks(VkCommandBuffer cmd) {
         uvec4{0}};
   pc.bits.x |= (frustum_cull.Get() != 0) << 1;
   pc.bits.x |= (freeze_cull.Get() != 0) << 2;
+  pc.bits.w = chunk_vert_pool.draw_cmd_allocator.Allocs().size();
 
   vkCmdPushConstants(cmd, chunk_cull_pipeline_.pipeline->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
                      sizeof(PC), &pc);

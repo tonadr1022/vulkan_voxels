@@ -10,6 +10,8 @@
 #include "voxels/Chunk.hpp"
 #include "voxels/Common.hpp"
 #include "voxels/Terrain.hpp"
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/hash.hpp>
 
 struct MeshTaskEnqueue {
   uint32_t chunk_handle;
@@ -60,6 +62,7 @@ struct VoxelWorld {
   void GenerateWorld(vec3 cam_pos);
   void Shutdown();
   void DrawImGuiStats();
+  void FreeAllMeshes();
 
  private:
   void ResetPools();
@@ -74,7 +77,6 @@ struct VoxelWorld {
     size_t max_pool_size3{};
   } stats_;
 
-  std::vector<ChunkAllocHandle> mesh_handles_;
   size_t max_mesh_tasks_;
   size_t max_terrain_tasks_;
   std::vector<ivec3> to_gen_terrain_tasks_;
@@ -88,6 +90,13 @@ struct VoxelWorld {
   PtrObjPool<MeshAlgData> mesh_alg_pool_;
   PtrObjPool<MesherOutputData> mesher_output_data_pool_;
   PtrObjPool<HeightMapData> height_map_pool_;
+  struct ChunkState {
+    uint32_t mesh_handle{};
+    enum State : uint8_t { None, TerrainGenerated, Meshed } state{};
+  };
+  std::unordered_map<ivec3, ChunkState> chunks;
+  std::vector<ChunkAllocHandle> mesh_handle_alloc_buffer_;
+  std::vector<uint32_t> meshes_to_delete;
   gen::FBMNoise noise_;
 
   HeightMapData* GetHeightMap(int x, int y);
@@ -104,7 +113,7 @@ struct VoxelWorld {
 
   vec3 curr_cam_pos_{};
   vec3 prev_cam_pos_{};
-  int radius_{1};
+  int radius_{3};
   void ResetInternal();
   std::mutex reset_mtx_;
   bool initalized_{false};

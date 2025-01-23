@@ -111,6 +111,8 @@ void ChunkMeshManager::Update() {
     // transfers_.emplace_back(renderer_->TransferSubmitAsync(
     //     [this](VkCommandBuffer cmd) { chunk_quad_buffer_.ExecuteCopy(cmd); }));
 
+    // renderer_->ImmediateSubmit(
+    //     [this](VkCommandBuffer cmd) { chunk_quad_buffer_.ExecuteCopy(cmd); });
     renderer_->TransferSubmit([this](VkCommandBuffer cmd) { chunk_quad_buffer_.ExecuteCopy(cmd); });
 
     // transfers_.emplace_back(renderer_->TransferSubmitAsync(

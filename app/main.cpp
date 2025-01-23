@@ -23,7 +23,7 @@
 #include "voxels/Mesher.hpp"
 #include "voxels/VoxelWorld.hpp"
 
-#define OCTREE_TEST
+// #define OCTREE_TEST
 
 #ifdef OCTREE_TEST
 #include "voxels/Octree.hpp"

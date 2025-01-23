@@ -80,9 +80,12 @@ bool ChunkBackFaceCull(vec3 chunk_center, uint face, float chunk_size) {
 
 void main() {
     uint g_id = gl_GlobalInvocationID.x;
-    if (g_id >= in_draw_info.length()) return;
+    // if (g_id >= in_draw_info.length() || g_id >= bits.w) return;
     DrawInfo info = in_draw_info[g_id];
     if (info.handle == 0) return;
+    if (info.pos.x != 0 || info.pos.y != 0 || info.pos.z != 0) {
+        // return;
+    }
 
     int chunk_mult = info.pos.w >> 3;
     float chunk_size = 62.0 * chunk_mult;
@@ -104,7 +107,9 @@ void main() {
         vec3 face_normal = normal_lookup[i];
         uint size_bytes = info.vertex_counts[i] * VERTEX_SIZE;
         if (size_bytes == 0) continue;
-        // if (i != 0) {
+        if (i != 0) {
+            continue;
+        }
         // if (i != 0) {
         //     // if (i != 0 && i != 1 && i != 2 && i != 3 && i != 4) {
         //     // offset += size_bytes;
@@ -117,7 +122,7 @@ void main() {
         // }
 
         bool visible = ChunkBackFaceCull(chunk_center, i, chunk_size);
-        // visible = true;
+        visible = true;
         // visible = !visible;
         // bool visible = true;
 

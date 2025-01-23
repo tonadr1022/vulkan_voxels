@@ -3,6 +3,7 @@
 #include <tracy/Tracy.hpp>
 
 #include "ChunkMeshManager.hpp"
+#include "EAssert.hpp"
 #include "application/CVar.hpp"
 #include "application/ThreadPool.hpp"
 #include "application/Timer.hpp"
@@ -40,11 +41,12 @@ void VoxelWorld::GenerateWorld(vec3 cam_pos) {
   int y = terrain_gen_chunks_y.Get();
   ivec3 cp = CamPosToChunkPos(cam_pos);
   for (iter.y = 0; iter.y < y; iter.y++) {
-    for (iter.x = -radius_ - cp.x; iter.x <= radius_ + cp.x; iter.x++) {
-      for (iter.z = -radius_ - cp.z; iter.z <= radius_ + cp.z; iter.z++) {
-        if (iter.y == 0) fmt::println("{} {}", iter.x, iter.z);
+    for (iter.x = cp.x - radius_; iter.x <= cp.x + radius_; iter.x++) {
+      for (iter.z = cp.z - radius_; iter.z <= cp.z + radius_; iter.z++) {
+        // if (iter.y == 0) fmt::println("{} {}", iter.x, iter.z);
         // TODO: use queue?
         to_gen_terrain_tasks_.emplace_back(iter);
+        chunks.emplace(iter, ChunkState{});
         world_gen_chunk_payload_++;
       }
     }
@@ -55,6 +57,7 @@ void VoxelWorld::GenerateWorld(vec3 cam_pos) {
 void VoxelWorld::Update(vec3 cam_pos) {
   ZoneScoped;
   std::lock_guard<std::mutex> lock(reset_mtx_);
+
   prev_cam_pos_ = curr_cam_pos_;
   curr_cam_pos_ = cam_pos;
   stats_.max_terrain_done_size =
@@ -69,31 +72,109 @@ void VoxelWorld::Update(vec3 cam_pos) {
 
   prev_world_start_finished_chunks_ = tot_chunks_loaded_;
 
-  // {
-  //   ZoneScopedN("update chunks to create/destroy");
-  //   ivec3 curr_cp = CamPosToChunkPos(curr_cam_pos_);
-  //   ivec3 prev_cp = CamPosToChunkPos(prev_cam_pos_);
-  //   if (curr_cp != prev_cp) {
-  //     for (int axis = 0; axis <= 2; axis += 2) {
-  //       if (curr_cp[axis] > prev_cp[axis]) {
-  //         // these are chunks that need generation
-  //         for (int i = prev_cp[axis] + radius_ + 1; i <= curr_cp[axis] + radius_; i++) {
-  //           fmt::println("making i {}, axis {}", i, axis);
-  //         }
-  //         for (int i = prev_cp[axis] - radius_; i < curr_cp[axis] - radius_; i++) {
-  //           fmt::println("deleting i {}, axis {}", i, axis);
-  //         }
-  //       } else if (curr_cp[axis] < prev_cp[axis]) {
-  //         for (int i = curr_cp[axis] + radius_ + 1; i <= prev_cp[axis] + radius_; i++) {
-  //           fmt::println("deleting i {}, axis {}", i, axis);
-  //         }
-  //         for (int i = curr_cp[axis] - radius_; i < prev_cp[axis] - radius_; i++) {
-  //           fmt::println("making i {}, axis {}", i, axis);
-  //         }
-  //       }
-  //     }
-  //   }
-  // }
+  {
+    ZoneScopedN("update chunks to create/destroy");
+    ivec3 curr_cp = CamPosToChunkPos(curr_cam_pos_);
+    ivec3 prev_cp = CamPosToChunkPos(prev_cam_pos_);
+    // auto delete_ch = [this, &meshes_to_delete](ivec3 pos) {
+    //   auto it = chunks.find(pos);
+    //   if (it != chunks.end()) {
+    //     meshes_to_delete.emplace_back(it->second);
+    //   }
+    // };
+    auto make = [this](ivec3 pos) {
+      auto it = chunks.find(pos);
+      if (it == chunks.end()) {
+        chunks.emplace(pos, ChunkState{});
+        to_gen_terrain_tasks_.emplace_back(pos);
+      } else if (it->second.state == ChunkState::None) {
+        to_gen_terrain_tasks_.emplace_back(pos);
+      }
+    };
+    if (curr_cp.x != prev_cp.x || curr_cp.z != prev_cp.z) {
+      int y = terrain_gen_chunks_y.Get();
+
+      ivec3 iter;
+      ivec3 cp = curr_cp;
+      for (iter.y = 0; iter.y < y; iter.y++) {
+        for (iter.x = cp.x - radius_; iter.x <= cp.x + radius_; iter.x++) {
+          for (iter.z = cp.z - radius_; iter.z <= cp.z + radius_; iter.z++) {
+            make(iter);
+            // to_gen_terrain_tasks_.emplace_back(iter);
+            // world_gen_chunk_payload_++;
+          }
+        }
+      }
+      ivec3 diff = curr_cp - prev_cp;
+      for (int axis = 0, other_axis = 2; axis <= 2; axis += 2, other_axis -= 2) {
+        if (diff[axis]) {
+          ivec3 pos;
+          pos[axis] = prev_cp[axis] - radius_ * glm::sign(diff[axis]);
+          for (pos[other_axis] = prev_cp[other_axis] - radius_;
+               pos[other_axis] <= prev_cp[other_axis] + radius_; pos[other_axis]++) {
+            for (pos.y = 0; pos.y < y; pos.y++) {
+              auto it = chunks.find(pos);
+              if (it != chunks.end()) {
+                if (it->second.mesh_handle) {
+                  meshes_to_delete.emplace_back(it->second.mesh_handle);
+                }
+                chunks.erase(it);
+              }
+            }
+          }
+        }
+      }
+      //   for (iter.x = cp.x - radius_ - unload_radius_pad;
+      //        iter.x <= cp.x + radius_ + unload_radius_pad; iter.x++) {
+      //     for (iter.z = cp.z - radius_ - unload_radius_pad;
+      //          iter.z <= cp.z + radius_ + unload_radius_pad; iter.z++) {
+      //       auto it = chunks.find(iter);
+      //       if (it != chunks.end()) {
+      //         meshes_to_delete.emplace_back(it->second.mesh_handle);
+      //         chunks.erase(it);
+      //       }
+      //       // to_gen_terrain_tasks_.emplace_back(iter);
+      //       // world_gen_chunk_payload_++;
+      //     }
+      //   }
+      // }
+
+      // for (int axis = 0, other_axis = 2; axis <= 2; axis += 2, other_axis -= 2) {
+      //   if (curr_cp[axis] > prev_cp[axis]) {
+      //     // these are chunks that need generation
+      //     ivec3 iter = curr_cp;
+      //     for (iter[axis] = prev_cp[axis] + radius_ + 1; iter[axis] <= curr_cp[axis] + radius_;
+      //          iter[axis]++) {
+      //       for (iter.y = 0; iter.y < y; iter.y++) {
+      //         for (iter[other_axis] = curr_cp[other_axis] - radius_;
+      //              iter[other_axis] <= curr_cp[other_axis] + radius_; iter[other_axis]++) {
+      //           make(iter);
+      //           fmt::println("making i {}, axis {}", iter[axis], axis);
+      //         }
+      //       }
+      //     }
+      //     iter = curr_cp;
+      //     for (iter[axis] = prev_cp[axis] - radius_; iter[axis] < curr_cp[axis] - radius_;
+      //          iter[axis]++) {
+      //       delete_ch(iter);
+      //       fmt::println("deleting i {}, axis {}", iter[axis], axis);
+      //     }
+      //   } else if (curr_cp[axis] < prev_cp[axis]) {
+      //     ivec3 iter = curr_cp;
+      //     for (iter[axis] = curr_cp[axis] + radius_ + 1; iter[axis] <= prev_cp[axis] + radius_;
+      //          iter[axis]++) {
+      //       delete_ch(iter);
+      //       fmt::println("deleting i {}, axis {}", iter[axis], axis);
+      //     }
+      //     for (iter[axis] = curr_cp[axis] - radius_; iter[axis] < prev_cp[axis] - radius_;
+      //          iter[axis]++) {
+      //       make(iter);
+      //       fmt::println("making i {}, axis {}", iter[axis], axis);
+      //     }
+      //   }
+      // }
+    }
+  }
 
   {
     ZoneScopedN("finished terrain tasks and enqueue mesh");
@@ -185,13 +266,24 @@ void VoxelWorld::Update(vec3 cam_pos) {
       tot_chunks_loaded_++;
     }
   }
+  ChunkMeshManager::Get().FreeMeshes(meshes_to_delete);
+  meshes_to_delete.clear();
 
   if (chunk_mesh_uploads_.size()) {
     // TODO: fix
-    auto old_count = mesh_handles_.size();
-    mesh_handles_.resize(mesh_handles_.size() + chunk_mesh_uploads_.size());
-    std::span<ChunkAllocHandle> s(mesh_handles_.begin() + old_count, mesh_handles_.size());
-    ChunkMeshManager::Get().UploadChunkMeshes(chunk_mesh_uploads_, s);
+    mesh_handle_alloc_buffer_.clear();
+    mesh_handle_alloc_buffer_.resize(chunk_mesh_uploads_.size());
+    ChunkMeshManager::Get().UploadChunkMeshes(chunk_mesh_uploads_, mesh_handle_alloc_buffer_);
+    for (size_t i = 0; i < chunk_mesh_uploads_.size(); i++) {
+      auto pos = chunk_mesh_uploads_[i].pos / CS;
+      auto it = chunks.find(pos);
+      if (it == chunks.end()) {
+        fmt::println(" {} {} {}", pos.x, pos.y, pos.z);
+      }
+      EASSERT(it != chunks.end());
+      it->second.mesh_handle = mesh_handle_alloc_buffer_[i];
+      it->second.state = ChunkState::Meshed;
+    }
   }
 }
 
@@ -207,6 +299,7 @@ TerrainGenResponse VoxelWorld::ProcessTerrainTask(const TerrainGenTask& task) {
   // gen::NoiseToHeights(height_map_floats, heights,
   //                     {0, (((terrain_gen_chunks_y.Get() * CS / m) - 1))});
   auto* height_map = GetHeightMap(chunk->pos.x, chunk->pos.z);
+  // gen::FillSphere<PCS>(chunk->grid, 128);
   gen::FillChunk(chunk->grid, chunk->pos * CS, *height_map, [](int, int, int) {
     // return (rand() % 255) + 1;
     return 128;
@@ -274,7 +367,7 @@ void VoxelWorld::DrawImGuiStats() {
 }
 
 void VoxelWorld::Shutdown() {
-  ChunkMeshManager::Get().FreeMeshes(mesh_handles_);
+  FreeAllMeshes();
   initalized_ = false;
 }
 
@@ -283,10 +376,9 @@ void VoxelWorld::ResetInternal() {
   tot_chunks_loaded_ = 0;
   prev_world_start_finished_chunks_ = -1;
   world_gen_chunk_payload_ = 0;
-  ChunkMeshManager::Get().FreeMeshes(mesh_handles_);
+  FreeAllMeshes();
   stats_ = {};
   chunk_mesh_uploads_.clear();
-  mesh_handles_.clear();
   ResetPools();
 }
 void VoxelWorld::Reset() {
@@ -336,3 +428,12 @@ HeightMapData* VoxelWorld::GetHeightMap(int x, int y) {
 }
 
 ivec3 VoxelWorld::CamPosToChunkPos(vec3 cam_pos) { return ivec3(cam_pos) / CS; }
+
+void VoxelWorld::FreeAllMeshes() {
+  std::vector<uint32_t> to_free;
+  to_free.reserve(chunks.size());
+  for (auto& [pos, data] : chunks) {
+    to_free.emplace_back(data.mesh_handle);
+  }
+  ChunkMeshManager::Get().FreeMeshes(to_free);
+}
