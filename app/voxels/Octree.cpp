@@ -8,13 +8,7 @@
 #include "imgui.h"
 
 namespace {
-AutoCVarFloat lod_thresh("terrain.lod_thresh", "lod threshold of terrain", 10.0);
-
-uint8_t GetChildIdx(uvec3 pos, uint8_t curr_depth) {
-  return (pos.y >> (Octree::MaxDepth - curr_depth - 1) & 1) << 2 |
-         (pos.x >> (Octree::MaxDepth - curr_depth - 1) & 1) << 1 |
-         (pos.z >> (Octree::MaxDepth - curr_depth - 1) & 1);
-}
+AutoCVarFloat lod_thresh("terrain.lod_thresh", "lod threshold of terrain", 5.0);
 
 template <typename T>
 void DumpBits(T d, size_t size = sizeof(T)) {
@@ -27,87 +21,6 @@ void DumpBits(T d, size_t size = sizeof(T)) {
 
 }  // namespace
 
-void Octree::Init() {
-  auto* d = new uint32_t[10];
-  for (int i = 0; i < 10; i++) {
-    d[i] = 10;
-    fmt::println("i {}", d[i]);
-  }
-  exit(1);
-  // nodes_[0].AllocNode();
-  // uvec3 iter{};
-  // auto cnt = 2u;
-  // uint32_t val = 1;
-  // int i = 0;
-  // for (iter.y = 0; iter.y < cnt; iter.y++) {
-  //   for (iter.x = 0; iter.x < cnt; iter.x++) {
-  //     for (iter.z = 0; iter.z < cnt; iter.z++, i++) {
-  //       SetVoxel(iter, 2, val + i);
-  //       EASSERT(GetVoxel(iter) == val + i);
-  //     }
-  //   }
-  // }
-  // val = 0;
-  // SetVoxel({0, 0, 0}, 1, val);
-  // for (iter.y = 0; iter.y < cnt; iter.y++) {
-  //   for (iter.x = 0; iter.x < cnt; iter.x++) {
-  //     for (iter.z = 0; iter.z < cnt; iter.z++) {
-  //       EASSERT(GetVoxel(iter) == val);
-  //     }
-  //   }
-  // }
-}
-
-void Octree::SetVoxel(uvec3 pos, uint32_t depth, VoxelData val) {
-  uint32_t curr_depth = 0;
-  // get root node
-  Node* curr_node = nodes_[0].Get(0);
-  while (curr_depth < depth) {
-    uint8_t child_idx = GetChildIdx(pos, curr_depth);
-    // make node if needed
-    if (curr_node->IsLeaf(child_idx)) {
-      uint32_t idx = nodes_[curr_depth + 1].AllocNode();
-      curr_node->SetChild(child_idx, idx);
-    }
-
-    // traverse to child
-    curr_node = nodes_[curr_depth + 1].Get(curr_node->data[child_idx]);
-    curr_depth++;
-  }
-
-  uint32_t final_child_idx = GetChildIdx(pos, curr_depth);
-  if (!curr_node->IsLeaf(final_child_idx)) {
-    FreeChildNodes(curr_node->data[final_child_idx], curr_depth + 1);
-  }
-  curr_node->SetData(final_child_idx, val);
-}
-
-uint32_t Octree::GetVoxel(uvec3 pos) {
-  uint32_t curr_depth = 0;
-  Node* curr_node = nodes_[0].Get(0);
-  while (curr_depth < MaxDepth) {
-    uint8_t idx = GetChildIdx(pos, curr_depth);
-    if (curr_node->IsLeaf(idx)) {
-      return curr_node->data[idx];
-    }
-    curr_node = nodes_[curr_depth].Get(curr_node->data[idx]);
-    curr_depth++;
-  }
-  EASSERT(0 && "unreachable");
-}
-
-void Octree::FreeChildNodes(uint32_t node_idx, uint32_t depth) {
-  if (depth >= MaxDepth) return;
-  Node* node = nodes_[depth].Get(node_idx);
-  for (uint8_t i = 0; i < 8; i++) {
-    if (!node->IsLeaf(i)) {
-      uint32_t child_idx = node->data[i];
-      FreeChildNodes(child_idx, depth + 1);
-      nodes_[depth + 1].Free(child_idx);
-    }
-  }
-  nodes_[depth].Free(node_idx);
-}
 void MeshOctree::Init() {
   lod_bounds_.reserve(AbsoluteMaxDepth);
   chunk_states_.Init(MaxChunks);
@@ -166,6 +79,7 @@ void MeshOctree::FreeChildren(std::vector<uint32_t>& meshes_to_free, uint32_t no
         //              curr_pos.x, curr_pos.y, curr_pos.z);
         s->mesh_handle = 0;
       }
+      chunk_states_.Free(node->chunk_state_handle);
       FreeNode(curr_depth, curr_idx);
     }
   }
@@ -348,13 +262,25 @@ void MeshOctree::Update(vec3 cam_pos) {
   chunk_mesh_node_keys_.clear();
   chunk_mesh_uploads_.clear();
   // Validate();
+
+  // cleanup old height maps
+  auto now = std::chrono::steady_clock::now();
+  if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last_height_map_cleanup_time_) >
+      std::chrono::milliseconds(1000)) {
+    ClearOldHeightMaps(now);
+    last_height_map_cleanup_time_ = now;
+  }
 }
 
 void MeshOctree::OnImGui() {
+  size_t tot_nodes_cnt = 0;
   if (ImGui::Begin("Voxel Octree")) {
     for (uint32_t i = 0; i <= max_depth_; i++) {
-      ImGui::Text("%d: %zu", i, nodes_[i].nodes.size() - nodes_[i].free_list.size());
+      size_t s = nodes_[i].nodes.size() - nodes_[i].free_list.size();
+      tot_nodes_cnt += s;
+      ImGui::Text("%d: %zu", i, s);
     }
+    ImGui::Text("Total Nodes: %zu", tot_nodes_cnt);
     ImGui::Text("height maps: %zu", height_maps_.size());
     int d = max_depth_;
     if (ImGui::DragInt("max depth", &d, 0, AbsoluteMaxDepth)) {
@@ -408,10 +334,11 @@ void MeshOctree::Validate() {
 HeightMapData& MeshOctree::GetHeightMap(int x, int z, int lod) {
   auto it = height_maps_.find({x, z, lod});
   if (it != height_maps_.end()) {
-    return it->second;
+    it->second.access = std::chrono::steady_clock::now();
+    return it->second.data;
   }
   auto res = height_maps_.emplace(ivec3{x, z, lod}, HeightMapData{});
-  HeightMapData& hm = res.first->second;
+  HeightMapData& hm = res.first->second.data;
 
   uint32_t scale = (1 << (max_depth_ - lod));
 
@@ -423,8 +350,10 @@ HeightMapData& MeshOctree::GetHeightMap(int x, int z, int lod) {
   static AutoCVarInt maxheight("terrain.maxheight", "max height", 128);
   gen::NoiseToHeights(floats, hm, {0, maxheight.Get() / scale});
 
-  return res.first->second;
+  res.first->second.access = std::chrono::steady_clock::now();
+  return res.first->second.data;
 }
+
 void MeshOctree::UpdateLodBounds() {
   lod_bounds_.resize(max_depth_ + 1);
   uint32_t k = 1;
@@ -433,4 +362,15 @@ void MeshOctree::UpdateLodBounds() {
     k *= 2;
   }
   std::ranges::reverse(lod_bounds_);
+}
+
+void MeshOctree::ClearOldHeightMaps(const std::chrono::steady_clock::time_point& now) {
+  for (auto it = height_maps_.begin(); it != height_maps_.end();) {
+    if (std::chrono::duration_cast<std::chrono::milliseconds>(now - it->second.access) >
+        std::chrono::milliseconds(1000)) {
+      it = height_maps_.erase(it);
+    } else {
+      ++it;
+    }
+  }
 }

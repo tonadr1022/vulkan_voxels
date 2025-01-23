@@ -5,6 +5,7 @@
 #include <span>
 #include <tracy/Tracy.hpp>
 
+#include "ChunkMeshManager.hpp"
 #include "DeletionQueue.hpp"
 #include "Resource.hpp"
 #include "RingBuffer.hpp"

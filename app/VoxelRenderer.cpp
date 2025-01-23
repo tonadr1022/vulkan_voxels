@@ -334,7 +334,7 @@ void VoxelRenderer::DrawChunks(VkDescriptorSet scene_data_set, VkCommandBuffer c
                        VK_INDEX_TYPE_UINT32);
   vkCmdDrawIndexedIndirectCount(cmd, mgr.chunk_quad_buffer_.draw_cmd_gpu_buf.buffer, 0,
                                 mgr.chunk_quad_buffer_.draw_count_buffer.buffer, 0,
-                                mgr.chunk_quad_buffer_.draw_cmds_count * 6,
+                                mgr.chunk_quad_buffer_.draw_cmds_count * 3,
                                 sizeof(VkDrawIndexedIndirectCommand));
 }
 

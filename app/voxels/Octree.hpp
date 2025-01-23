@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 
 #include "EAssert.hpp"
@@ -104,7 +105,7 @@ struct MeshOctree {
   std::vector<NodeQueueItem> to_mesh_queue_;
   gen::FBMNoise noise_;
   static constexpr int AbsoluteMaxDepth = 25;
-  static constexpr uint32_t MaxChunks = 20000;
+  static constexpr uint32_t MaxChunks = 100000;
   uint32_t max_depth_ = 10;
   std::vector<uint32_t> lod_bounds_;
   std::vector<ChunkMeshUpload> chunk_mesh_uploads_;
@@ -119,10 +120,16 @@ struct MeshOctree {
   std::vector<NodeQueueItem> node_queue_;
   std::array<NodeList<Node>, AbsoluteMaxDepth + 1> nodes_;
   std::vector<NodeQueueItem> child_free_stack_;
-  std::unordered_map<ivec3, HeightMapData> height_maps_;
+  struct OctreeHeightMapData {
+    HeightMapData data;
+    std::chrono::steady_clock::time_point access;
+  };
+  std::unordered_map<ivec3, OctreeHeightMapData> height_maps_;
+  std::chrono::steady_clock::time_point last_height_map_cleanup_time_;
+  // std::unordered_map<ivec3, HeightMapData> height_maps_;
 
   struct ChunkState {
-    using DataT = uint8_t;
+    using DataT = uint32_t;
     uint32_t mesh_handle{0};
     DataT data{NeedsGenMeshingFlag};
     [[nodiscard]] bool GetNeedsGenOrMeshing() const { return data & NeedsGenMeshingFlag; }
@@ -135,6 +142,7 @@ struct MeshOctree {
   };
   ObjPool<ChunkState> chunk_states_;
 
+  void ClearOldHeightMaps(const std::chrono::steady_clock::time_point& now);
   void FreeNode(uint32_t depth, uint32_t idx) { nodes_[depth].Free(idx); }
   Node* GetNode(uint32_t depth, uint32_t idx) { return GetNode(NodeKey{depth, idx}); }
   [[nodiscard]] const Node* GetNode(uint32_t depth, uint32_t idx) const {
@@ -179,20 +187,4 @@ struct OctreeNode {
   }
   static constexpr std::array<uint32_t, 8> Mask = {1 << 0, 1 << 1, 1 << 2, 1 << 3,
                                                    1 << 4, 1 << 5, 1 << 6, 1 << 7};
-};
-
-// LOD 0 is the coarsest
-struct Octree {
-  using Node = OctreeNode;
-
-  void Init();
-
-  void SetVoxel(uvec3 pos, uint32_t depth, VoxelData val);
-  uint32_t GetVoxel(uvec3 pos);
-
-  constexpr static uint64_t MaxDepth = 5;
-
- private:
-  void FreeChildNodes(uint32_t node_idx, uint32_t depth);
-  std::array<NodeList<Node>, MaxDepth> nodes_;
 };
