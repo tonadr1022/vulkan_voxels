@@ -34,7 +34,7 @@ class ChunkMeshManager {
   [[nodiscard]] uint32_t CopyChunkToStaging(const uint64_t* data, uint32_t quad_cnt);
   void UploadChunkMeshes(std::span<ChunkMeshUpload> uploads, std::span<ChunkAllocHandle> handles);
   void FreeMeshes(std::span<ChunkAllocHandle> handles);
-  void Update();
+  // void Update();
   void CopyDrawBuffers();
 
   static constexpr const uint32_t MaxQuads{1000000000};

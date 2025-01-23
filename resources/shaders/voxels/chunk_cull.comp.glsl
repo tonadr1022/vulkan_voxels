@@ -132,7 +132,6 @@ void main() {
         // }
 
         bool visible = ChunkBackFaceCull(chunk_center, i, chunk_size);
-        // visible = true;
         // visible = !visible;
         // bool visible = true;
 

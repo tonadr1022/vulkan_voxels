@@ -1,12 +1,10 @@
 #pragma once
 
-#include <queue>
-
 #include "ChunkMeshManager.hpp"
 #include "Mesher.hpp"
 #include "Pool.hpp"
+#include "TaskPool.hpp"
 #include "application/Timer.hpp"
-#include "concurrentqueue.h"
 #include "voxels/Chunk.hpp"
 #include "voxels/Common.hpp"
 #include "voxels/Terrain.hpp"
@@ -35,25 +33,6 @@ struct TerrainGenResponse {
   ivec3 pos;
 };
 
-template <typename T, typename D>
-struct TaskPool {
-  size_t in_flight{0};
-  // moodycamel::ConcurrentQueue<T> to_complete_tasks;
-  size_t to_complete_task_queue_size{};
-  moodycamel::ConcurrentQueue<D> done_tasks;
-  std::queue<T> to_complete;
-  void Clear() {
-    D cmp;
-    while (to_complete_task_queue_size > 0) {
-      if (!done_tasks.try_dequeue(cmp)) {
-        break;
-      }
-      to_complete_task_queue_size--;
-    }
-    to_complete_task_queue_size = 0;
-    in_flight = 0;
-  }
-};
 struct VoxelWorld {
   void Update(vec3 cam_pos);
   ivec3 CamPosToChunkPos(vec3 cam_pos);

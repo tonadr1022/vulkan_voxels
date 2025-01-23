@@ -98,31 +98,18 @@ void ChunkMeshManager::UploadChunkMeshes(std::span<ChunkMeshUpload> uploads,
     EASSERT(quad_cnt);
     quad_count_ += quad_cnt;
   }
-  {
-    ZoneScopedN("copy to gpu");
-    if (chunk_quad_buffer_.copies.size()) {
-      renderer_->TransferSubmit(
-          [this](VkCommandBuffer cmd) { chunk_quad_buffer_.ExecuteCopy(cmd); });
-    }
-  }
+  // {
+  //   ZoneScopedN("copy to gpu");
+  //   if (chunk_quad_buffer_.copies.size()) {
+  //     renderer_->ImmediateSubmit(
+  //         [this](VkCommandBuffer cmd) { chunk_quad_buffer_.ExecuteCopy(cmd); });
+  //   }
+  // }
 }
 
 ChunkMeshManager& ChunkMeshManager::Get() {
   static ChunkMeshManager instance;
   return instance;
-}
-
-void ChunkMeshManager::Update() {
-  ZoneScopedN("ChunkMeshManager Update");
-  if (chunk_quad_buffer_.copies.size()) {
-    // transfers_.emplace_back(renderer_->TransferSubmitAsync(
-    //     [this](VkCommandBuffer cmd) { chunk_quad_buffer_.ExecuteCopy(cmd); }));
-
-    // renderer_->ImmediateSubmit(
-    //     [this](VkCommandBuffer cmd) { chunk_quad_buffer_.ExecuteCopy(cmd); });
-    // renderer_->TransferSubmit([this](VkCommandBuffer cmd) { chunk_quad_buffer_.ExecuteCopy(cmd);
-    // });
-  }
 }
 
 void ChunkMeshManager::DrawImGuiStats() const {

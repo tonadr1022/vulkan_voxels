@@ -270,9 +270,16 @@ int main() {
   double last_time = timer.ElapsedMS();
 
   static AutoCVarInt world_update_sleep_time("world.update_sleep_time",
-                                             "World Update Sleep Time MS", 1000);
+                                             "World Update Sleep Time MS", 1);
 #ifdef OCTREE_TEST
   oct.Init();
+  auto f = std::thread([]() {
+    while (!should_quit) {
+      oct.Update(main_cam.position);
+      // world->Update(main_cam.position);
+      std::this_thread::sleep_for(std::chrono::nanoseconds(world_update_sleep_time.Get()));
+    }
+  });
   // oct.Update(ivec3{0});
 #else
   InitWorld();
@@ -306,7 +313,7 @@ int main() {
     }
     Update(dt);
 #ifdef OCTREE_TEST
-    oct.Update(main_cam.position);
+    // oct.Update(main_cam.position);
 #endif
 
     if (draw_imgui) {
@@ -340,9 +347,7 @@ int main() {
     // }
     stats.frame_time = dt;
   }
-#ifndef OCTREE_TEST
   f.join();
-#endif
 
   renderer.Cleanup();
 }

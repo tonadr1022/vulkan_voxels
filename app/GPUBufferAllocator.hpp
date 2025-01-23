@@ -338,40 +338,34 @@ struct VertexPool {
   bool draws_dirty_{false};
 
  public:
-  [[nodiscard]] bool DrawsDirty() const { return draws_dirty_; }
-
   void CopyDrawsToStaging() {
     ZoneScoped;
     std::lock_guard<std::mutex> lock(mtx_);
-    auto& allocs = draw_cmd_allocator.Allocs();
-    auto active_size_bytes = sizeof(Allocation<UserT>) * draw_cmd_allocator.Allocs().size();
-    curr_draw_info_copy_size_ = active_size_bytes;
-    memcpy(draw_infos_staging.data, allocs.data(), active_size_bytes);
-    if (draw_cmd_allocator.MaxSeenActiveAllocs() > draw_cmd_allocator.Allocs().size()) {
-      auto empty_space_size =
-          sizeof(Allocation<UserT>) *
-          (draw_cmd_allocator.MaxSeenActiveAllocs() - draw_cmd_allocator.Allocs().size());
-      EASSERT(empty_space_size + active_size_bytes <= draw_infos_staging.size);
-      memset(static_cast<uint8_t*>(draw_infos_staging.data) + active_size_bytes, 0,
-             empty_space_size);
-      curr_draw_info_copy_size_ += empty_space_size;
+    if (draws_dirty_) {
+      auto& allocs = draw_cmd_allocator.Allocs();
+      auto active_size_bytes = sizeof(Allocation<UserT>) * draw_cmd_allocator.Allocs().size();
+      curr_draw_info_copy_size_ = active_size_bytes;
+      memcpy(draw_infos_staging.data, allocs.data(), active_size_bytes);
+      if (draw_cmd_allocator.MaxSeenActiveAllocs() > draw_cmd_allocator.Allocs().size()) {
+        auto empty_space_size =
+            sizeof(Allocation<UserT>) *
+            (draw_cmd_allocator.MaxSeenActiveAllocs() - draw_cmd_allocator.Allocs().size());
+        EASSERT(empty_space_size + active_size_bytes <= draw_infos_staging.size);
+        memset(static_cast<uint8_t*>(draw_infos_staging.data) + active_size_bytes, 0,
+               empty_space_size);
+        curr_draw_info_copy_size_ += empty_space_size;
+      }
     }
   }
 
   void CopyDrawsStagingToGPU(VkCommandBuffer cmd) {
     std::lock_guard<std::mutex> lock(mtx_);
-    if (curr_draw_info_copy_size_) {
-      VkBufferCopy copy{0, 0, curr_draw_info_copy_size_};
-      vkCmdCopyBuffer(cmd, draw_infos_staging.buffer, draw_infos_gpu_buf.buffer, 1, &copy);
-      // auto* data = reinterpret_cast<Allocation<UserT>*>(draw_infos_staging.data);
-      // int c = 0;
-      // for (size_t i = 0; i < draw_cmd_allocator.MaxSeenActiveAllocs(); i++) {
-      //   if (data[i].handle != 0) {
-      //     c++;
-      //   }
-      // }
-      // fmt::println("ggg {}, {}", curr_draw_info_copy_size_ / sizeof(Allocation<UserT>), c);
-      // draw_cmd_allocator.PrintHandles(false, false);
+    if (draws_dirty_) {
+      draws_dirty_ = false;
+      if (curr_draw_info_copy_size_) {
+        VkBufferCopy copy{0, 0, curr_draw_info_copy_size_};
+        vkCmdCopyBuffer(cmd, draw_infos_staging.buffer, draw_infos_gpu_buf.buffer, 1, &copy);
+      }
     }
   }
 
@@ -486,7 +480,6 @@ struct VertexPool {
   void ExecuteCopy(VkCommandBuffer cmd) {
     ZoneScoped;
     std::lock_guard<std::mutex> lock(mtx_);
-    draws_dirty_ = false;
     if (copies.size()) {
       vkCmdCopyBuffer(cmd, vertex_staging.Staging().buffer, quad_gpu_buf.buffer, copies.size(),
                       copies.data());
