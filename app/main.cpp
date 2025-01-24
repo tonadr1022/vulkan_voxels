@@ -154,6 +154,10 @@ void OnEvent(const SDL_Event& e) {
       fmt::println("Saved screenshot to {}", path);
     } else if (sym == SDLK_F10) {
       RestartWorld();
+    } else if (sym == SDLK_0) {
+      move_speed.Set(move_speed.Get() * 10);
+    } else if (sym == SDLK_9) {
+      move_speed.Set(move_speed.Get() / 10);
     }
 #ifdef OCTREE_TEST
     else if (sym == SDLK_F9) {

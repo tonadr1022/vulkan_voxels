@@ -54,20 +54,21 @@ void VoxelRenderer::Draw(bool draw_imgui) {
   float near = 0.1f;
   float far = z_far.Get();
   float fov_rad = glm::radians(fov.GetFloat());
-  glm::mat4 non_reversed_proj = glm::perspective(fov_rad, aspect, near, far);
-  non_reversed_proj[1][1] *= -1;
+  glm::mat4 proj = glm::perspective(fov_rad, aspect, near, std::numeric_limits<float>::infinity());
   if (reverse_z.Get()) {
-    std::swap(near, far);
+    proj[2][2] = 0.0f;
+    proj[3][2] = near;
   }
-  glm::mat4 proj = glm::perspective(fov_rad, aspect, near, far);
   proj[1][1] *= -1;
   scene_data_ubo_cpu_.proj = proj;
-  glm::mat4 view =
-      glm::lookAt(intra_voxel_pos, intra_voxel_pos + scene_data_->cam_dir, vec3(0, 1, 0));
+  glm::mat4 view = glm::lookAt(intra_voxel_pos, intra_voxel_pos + scene_data_->cam_dir,
+                               glm::vec3(0.0f, 1.0f, 0.0f));
   scene_data_ubo_cpu_.world_center_view = view;
-
   scene_data_ubo_cpu_.world_center_viewproj = proj * view;
-  frustum_cpu_.SetData(non_reversed_proj * view);
+
+  glm::mat4 cull_proj = glm::perspective(fov_rad, aspect, near, far);
+  cull_proj[1][1] *= -1;
+  frustum_cpu_.SetData(cull_proj * view);
 
   if (!UpdateSwapchainAndCheckIfReady()) {
     return;

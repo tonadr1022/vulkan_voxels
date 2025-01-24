@@ -26,15 +26,15 @@ void DumpBits(T d, size_t size = sizeof(T)) {
 void MeshOctree::Init() {
   lod_bounds_.reserve(AbsoluteMaxDepth);
 
-  const int max_tasks = std::thread::hardware_concurrency() * 16;
+  const int max_tasks = std::thread::hardware_concurrency() * 4;
 
   terrain_tasks_.Init(max_tasks);
-  mesh_tasks_.Init(max_tasks);
+  chunk_pool_.Init(max_tasks * 64);
+  height_map_pool_.Init(50000);
+  // TODO: fine tune
+  mesh_alg_buf_.Init(1000);
+  mesher_output_data_buf_.Init(1000);
 
-  chunk_pool_.Init(max_tasks * 4);
-  height_map_pool_.Init(6000);
-  mesher_output_data_pool_.Init(max_tasks);
-  mesh_alg_pool_.Init(max_tasks);
   chunk_states_pool_.Init(MaxChunks);
   prev_cam_chunk_pos_ = ivec3{INT_MAX};
 
@@ -45,22 +45,6 @@ void MeshOctree::Init() {
 
   UpdateLodBounds();
   Update(ivec3{0});
-}
-
-ChunkMeshUpload MeshOctree::PrepareChunkMeshUpload(const MeshAlgData& alg_data,
-                                                   const MesherOutputData& data, ivec3 pos,
-                                                   uint32_t depth) const {
-  uint32_t staging_copy_idx =
-      ChunkMeshManager::Get().CopyChunkToStaging(data.vertices.data(), data.vertex_cnt);
-  ChunkMeshUpload u{};
-  u.staging_copy_idx = staging_copy_idx;
-  u.pos = pos;
-  int m = max_depth_ - depth + 1;
-  u.mult = 1 << (m - 1);
-  for (int i = 0; i < 6; i++) {
-    u.counts[i] = alg_data.face_vertex_lengths[i];
-  }
-  return u;
 }
 
 void MeshOctree::FreeChildren(std::vector<uint32_t>& meshes_to_free, uint32_t node_idx,
@@ -149,38 +133,43 @@ void MeshOctree::Reset() {
 void MeshOctree::Update(vec3 cam_pos) {
   ZoneScoped;
   EASSERT(node_queue_.empty());
+  curr_cam_pos_ = cam_pos;
   auto new_cam_chunk_pos = ivec3(cam_pos) / CS;
   bool changed_chunk_pos = new_cam_chunk_pos != prev_cam_chunk_pos_;
   prev_cam_chunk_pos_ = new_cam_chunk_pos;
-  static int i = 0;
-  if (i++ == 100) {
-    i = 0;
+  if (changed_chunk_pos) {
     node_queue_.push_back(NodeQueueItem{0, vec3{0}, 0});
     while (!node_queue_.empty()) {
-      auto [node_idx, pos, depth] = node_queue_.back();
+      auto [node_idx, pos, lod] = node_queue_.back();
       node_queue_.pop_back();
-      ivec3 chunk_center = pos + ((1 << (max_depth_ - depth)) * HALFCS);
+      {
+        auto* node = GetNode(lod, node_idx);
+        EASSERT(node);
+        ChunkState* s = chunk_states_pool_.Get(node->chunk_state_handle);
+        if (!(s->data & ChunkState::DataFlagsTerrainGenDirty) && s->num_solid == 0) {
+          continue;
+        }
+      }
+      //
       // ivec3 chunk_center = pos + (1 << (MaxDepth - depth)) * HALFCS;
       // fmt::println("node pos {} {} {}, depth {}, cs {} {} {}", pos.x, pos.y, pos.z, depth,
       //              chunk_center.x, chunk_center.y, chunk_center.z);
       // mesh if far away enough not to split
-      if (glm::distance(vec3(chunk_center), cam_pos) >=
-              (lod_bounds_[depth] * lod_thresh.GetFloat()) ||
-          depth == max_depth_) {
-        auto* node = GetNode(depth, node_idx);
+      if (ShouldMeshChunk(pos, lod) || lod == max_depth_) {
+        auto* node = GetNode(lod, node_idx);
         ChunkState* s = chunk_states_pool_.Get(node->chunk_state_handle);
-        if (depth < max_depth_) {
-          FreeChildren(meshes_to_free_, node_idx, depth, pos);
+        if (lod < max_depth_) {
+          FreeChildren(meshes_to_free_, node_idx, lod, pos);
         }
         if (s->GetNeedsGenOrMeshing()) {
           s->SetNeedsGenOrMeshing(false);
-          to_mesh_queue_.emplace_back(NodeQueueItem{node_idx, pos, depth});
+          to_mesh_queue_.emplace_back(NodeQueueItem{node_idx, pos, lod});
         }
-      } else if (depth < max_depth_) {
-        int off = GetOffset(max_depth_ - depth - 1);
+      } else if (lod < max_depth_) {
+        int off = GetOffset(max_depth_ - lod - 1);
 
         // TODO: refactor
-        auto* node = nodes_[depth].Get(node_idx);
+        auto* node = nodes_[lod].Get(node_idx);
         ChunkState* s = chunk_states_pool_.Get(node->chunk_state_handle);
         if (s->mesh_handle) {
           meshes_to_free_.emplace_back(s->mesh_handle);
@@ -194,11 +183,11 @@ void MeshOctree::Update(vec3 cam_pos) {
         int i = 0;
         for (int y = 0; y < 2; y++) {
           for (int z = 0; z < 2; z++) {
-            for (int x = 0; x < 2; x++) {
+            for (int x = 0; x < 2; x++, i++) {
               NodeQueueItem e;
-              e.lod = depth + 1;
+              e.lod = lod + 1;
               e.pos = pos + ivec3{x, y, z} * off;
-              auto* node = nodes_[depth].Get(node_idx);
+              auto* node = nodes_[lod].Get(node_idx);
               uint32_t child_node_idx;
               if (node->IsSet(i)) {
                 child_node_idx = node->data[i];
@@ -209,7 +198,6 @@ void MeshOctree::Update(vec3 cam_pos) {
               }
               e.node_idx = child_node_idx;
               node_queue_.emplace_back(e);
-              i++;
             }
           }
         }
@@ -224,6 +212,11 @@ void MeshOctree::Update(vec3 cam_pos) {
   {
     ZoneScopedN("fill chunk and mesh");
 
+    // TODO:
+    // use ring buffer for chunks and mesh alg data since they're temporary
+    // chain terrain gen to meshing
+    //
+    //
     {
       ZoneScopedN("terrain task enqueue");
       while (terrain_tasks_.CanEnqueueTask() && !to_mesh_queue_.empty()) {
@@ -233,98 +226,87 @@ void MeshOctree::Update(vec3 cam_pos) {
         auto* chunk = chunk_pool_.Get(chunk_handle);
         EASSERT(chunk);
         chunk->pos = pos;
-        // uint32_t height_map_handle = GetHeightMap(pos.x, pos.z, lod);
         TerrainGenTask terrain_task{NodeKey{.lod = lod, .idx = node_idx}, chunk_handle,
                                     GetNode(lod, node_idx)->chunk_state_handle};
         terrain_tasks_.IncInFlight();
         thread_pool.detach_task([terrain_task, this]() {
           auto t = terrain_task;
+          auto* chunk = chunk_pool_.Get(t.chunk_gen_data_handle);
+          auto* chunk_state = chunk_states_pool_.Get(t.chunk_state_handle);
+          MeshGenTask mesh_task{};
+          mesh_task.chunk_gen_data_handle = t.chunk_gen_data_handle;
+          mesh_task.chunk_state_handle = t.chunk_state_handle;
+          // check whether still need to do this task
+          bool mesh_curr_test = MeshCurrTest(chunk->pos, t.node_key.lod);
+          if (!mesh_curr_test) {
+            // if (!ShouldMeshChunk(chunk->pos, t.node_key.lod) ||
+            //     (t.node_key.lod == 0 || ShouldMeshChunk(chunk->pos, t.node_key.lod - 1))) {
+            terrain_tasks_.done_tasks.enqueue(mesh_task);
+            return;
+          }
           ProcessTerrainTask(t);
-          terrain_tasks_.done_tasks.enqueue(t);
+          chunk = chunk_pool_.Get(t.chunk_gen_data_handle);
+          chunk_state = chunk_states_pool_.Get(t.chunk_state_handle);
+          size_t num_solid = chunk->grid.mask.SolidCount();
+          chunk_state->num_solid = num_solid;
+          chunk_state->SetFlags(ChunkState::DataFlagsTerrainGenDirty, false);
+          if (chunk && chunk_state && num_solid) {
+            mesh_task.node_key = t.node_key;
+            ProcessMeshGenTask(mesh_task);
+            terrain_tasks_.done_tasks.enqueue(mesh_task);
+          } else if (chunk) {
+            terrain_tasks_.done_tasks.enqueue(mesh_task);
+          }
         });
-      }
-    }
-    {
-      ZoneScopedN("finish terrain, enqueue mesh");
-      TerrainGenTask terrain_task;
-      while (terrain_tasks_.InFlight() > 0 && terrain_tasks_.done_tasks.try_dequeue(terrain_task)) {
-        ZoneScoped;
-        terrain_tasks_.DecInFlight();
-        auto* chunk = chunk_pool_.Get(terrain_task.chunk_gen_data_handle);
-        auto* chunk_state = chunk_states_pool_.Get(terrain_task.chunk_state_handle);
-        EASSERT(chunk_state && chunk);
-        if (chunk && chunk_state && chunk->grid.mask.AnySolid() &&
-            chunk_state->data & ChunkState::DataFlagsChunkInRange) {
-          MeshGenTask mesh_task;
-          mesh_task.node_key = terrain_task.node_key;
-          mesh_task.chunk_gen_data_handle = terrain_task.chunk_gen_data_handle;
-          mesh_tasks_.to_complete.emplace(mesh_task);
-        } else if (chunk) {
-          chunk_pool_.Free(terrain_task.chunk_gen_data_handle);
-        }
       }
     }
 
     {
-      ZoneScopedN("enqueue mesh tasks");
-      while (mesh_tasks_.CanEnqueueTask() && mesh_tasks_.to_complete.size()) {
-        MeshGenTask task = mesh_tasks_.to_complete.front();
-        mesh_tasks_.to_complete.pop();
-        task.alg_data_handle = mesh_alg_pool_.Alloc();
-        task.output_data_handle = mesher_output_data_pool_.Alloc();
-        mesh_tasks_.IncInFlight();
-        thread_pool.detach_task([task, this]() {
-          auto t = task;
-          ProcessMeshGenTask(t);
-          mesh_tasks_.done_tasks.enqueue(t);
-        });
-      }
-    }
-    {
       ZoneScopedN("finished mesh gpu upload tasks");
       MeshGenTask task;
-      while (mesh_tasks_.InFlight() > 0 && mesh_tasks_.done_tasks.try_dequeue(task)) {
-        mesh_tasks_.DecInFlight();
-        auto free_mesh_data = [&]() {
-          mesh_alg_pool_.Free(task.alg_data_handle);
-          mesher_output_data_pool_.Free(task.output_data_handle);
-        };
-        auto* alg_data = mesh_alg_pool_.Get(task.alg_data_handle);
-        auto* data = mesher_output_data_pool_.Get(task.output_data_handle);
-        EASSERT(alg_data && data);
+      while (terrain_tasks_.InFlight() > 0 && terrain_tasks_.done_tasks.try_dequeue(task)) {
+        terrain_tasks_.DecInFlight();
         auto* chunk = chunk_pool_.Get(task.chunk_gen_data_handle);
         EASSERT(chunk);
         chunk_pool_.Free(task.chunk_gen_data_handle);
-        auto pos = chunk->pos;
-        if (!data->vertex_cnt) {
-          free_mesh_data();
-        } else {
-          ChunkMeshUpload u{};
+        // if (task.vert_count && ShouldMeshChunk(chunk->pos, task.node_key.lod)) {
+        bool mesh_curr_test = MeshCurrTest(chunk->pos, task.node_key.lod);
+        // if (task.vert_count && !mesh_curr_test) {
+        //   fmt::println("stale {} {} {} {}", chunk->pos.x, chunk->pos.y, chunk->pos.z,
+        //                task.node_key.lod);
+        // }
+        if (task.vert_count) {
+          auto pos = chunk->pos;
+          ChunkMeshUpload u;
+          u.stale = !mesh_curr_test;
           u.staging_copy_idx = task.staging_copy_idx;
-          u.pos = pos;
-          int m = max_depth_ - task.node_key.lod + 1;
-          u.mult = 1 << (m - 1);
-          for (int i = 0; i < 6; i++) {
-            u.counts[i] = alg_data->face_vertex_lengths[i];
+          if (!u.stale) {
+            memcpy(u.vert_counts, task.vert_counts, sizeof(uint32_t) * 6);
+            u.pos = pos;
+            u.mult = 1 << (max_depth_ - task.node_key.lod);
           }
           chunk_mesh_uploads_.emplace_back(u);
           chunk_mesh_node_keys_.emplace_back(task.node_key);
-          free_mesh_data();
-          // fmt::println("meshing {} {} {} depth {}", pos.x, pos.y, pos.z, depth);
         }
+        // fmt::println("meshing {} {} {} depth {}", pos.x, pos.y, pos.z, depth);
       }
     }
   }
+
   EASSERT(chunk_mesh_node_keys_.size() == chunk_mesh_uploads_.size());
   if (chunk_mesh_uploads_.size()) {
-    mesh_handle_upload_buffer_.resize(chunk_mesh_uploads_.size());
+    mesh_handle_upload_buffer_.reserve(chunk_mesh_uploads_.size());
     ChunkMeshManager::Get().UploadChunkMeshes(chunk_mesh_uploads_, mesh_handle_upload_buffer_);
+    size_t j = 0;
     for (size_t i = 0; i < chunk_mesh_node_keys_.size(); i++) {
-      auto* node = GetNode(chunk_mesh_node_keys_[i]);
-      EASSERT(node);
-      auto* state = chunk_states_pool_.Get(node->chunk_state_handle);
-      EASSERT(state);
-      state->mesh_handle = mesh_handle_upload_buffer_[i];
+      if (!chunk_mesh_uploads_[i].stale) {
+        auto* node = GetNode(chunk_mesh_node_keys_[j]);
+        EASSERT(node);
+        auto* state = chunk_states_pool_.Get(node->chunk_state_handle);
+        EASSERT(state);
+        state->mesh_handle = mesh_handle_upload_buffer_[j];
+        j++;
+      }
     }
   }
   mesh_handle_upload_buffer_.clear();
@@ -358,8 +340,6 @@ void MeshOctree::OnImGui() {
     }
     ImGui::Text("Total Nodes: %zu", tot_nodes_cnt);
     ImGui::Text("height maps: %zu", height_maps_.size());
-    ImGui::Text("meshes: to complete %zu, done %zu", mesh_tasks_.to_complete.size(),
-                mesh_tasks_.done_tasks.size_approx());
     ImGui::Text("terrain: to complete %zu, done %zu", terrain_tasks_.to_complete.size(),
                 terrain_tasks_.done_tasks.size_approx());
     int d = max_depth_;
@@ -420,6 +400,7 @@ void MeshOctree::UpdateLodBounds() {
     k *= 2;
   }
   std::ranges::reverse(lod_bounds_);
+  // for (auto b : lod_bounds_) fmt::println("{} ", b);
 }
 
 void MeshOctree::ClearOldHeightMaps(const std::chrono::steady_clock::time_point& now) {
@@ -440,13 +421,12 @@ void MeshOctree::ProcessTerrainTask(TerrainGenTask& task) {
   auto* chunk = chunk_pool_.Get(task.chunk_gen_data_handle);
   chunk->grid.Clear();
   auto& hm = GetHeightMap(chunk->pos.x, chunk->pos.z, task.node_key.lod);
-  int color = 128;
-  // int color = task.node_key.lod * 30;
+  // int color = 128;
+  int color = task.node_key.lod * 30;
 
   // gen::FillSphere<PCS>(chunk->grid, color);
   // return;
-  if (chunk->pos.y > hm.range[1] ||
-      ((static_cast<int>(ChunkLenFromDepth(task.node_key.lod)) + chunk->pos.y) < hm.range[0])) {
+  if (!ChunkInHeightMapRange(hm.range, task.node_key.lod, chunk->pos)) {
     return;
   }
   int scale = (1 << (max_depth_ - task.node_key.lod));
@@ -463,17 +443,28 @@ void MeshOctree::ProcessTerrainTask(TerrainGenTask& task) {
   }
   // gen::FillChunkNoCheck(chunk->grid, chunk->pos, hm, [c](int, int, int) { return c; });
 }
+
 void MeshOctree::ProcessMeshGenTask(MeshGenTask& task) {
   ZoneScoped;
   auto& chunk = *chunk_pool_.Get(task.chunk_gen_data_handle);
-  auto* alg_data = mesh_alg_pool_.Get(task.alg_data_handle);
-  auto* data = mesher_output_data_pool_.Get(task.output_data_handle);
+
+  MeshAlgData* alg_data{};
+  MesherOutputData* data{};
+  {
+    std::lock_guard<std::mutex> lock(height_map_mtx_);
+    alg_data = mesh_alg_buf_.Allocate();
+    data = mesher_output_data_buf_.Allocate();
+  }
   EASSERT(alg_data && data);
   alg_data->mask = &chunk.grid.mask;
   GenerateMesh(chunk.grid.grid.grid, *alg_data, *data);
+  task.vert_count = data->vertex_cnt;
   if (data->vertex_cnt) {
     task.staging_copy_idx =
         ChunkMeshManager::Get().CopyChunkToStaging(data->vertices.data(), data->vertex_cnt);
+    for (int i = 0; i < 6; i++) {
+      task.vert_counts[i] = alg_data->face_vertex_lengths[i];
+    }
   }
 }
 
@@ -537,3 +528,13 @@ HeightMapData& MeshOctree::GetHeightMap(int x, int z, int lod) {
 //   res.first->second.access = std::chrono::steady_clock::now();
 //   return res.first->second.height_map_pool_handle;
 // }
+
+bool MeshOctree::ShouldMeshChunk(ivec3 pos, uint32_t lod) {
+  return glm::distance(vec3(ChunkCenter(pos, lod)), curr_cam_pos_) >=
+         (lod_bounds_[lod] * lod_thresh.GetFloat());
+}
+bool MeshOctree::MeshCurrTest(ivec3 pos, uint32_t lod) {
+  bool mesh_curr = ShouldMeshChunk(pos, lod);
+  bool mesh_next = lod == max_depth_ || ShouldMeshChunk(pos, lod + 1);
+  return mesh_curr && (mesh_curr || !mesh_next);
+}
