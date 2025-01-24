@@ -107,7 +107,7 @@ void main() {
     const bool freeze_cull = bool(bits.x & 0x4);
     if (freeze_cull) return;
     bool frustum_cull_enabled = !freeze_cull && bool(bits.x & 0x2);
-    frustum_cull_enabled = false;
+    // frustum_cull_enabled = false;
     if (frustum_cull_enabled) {
         vec4 pos = vec4(chunk_center - cam_pos.xyz, 1.0);
         if (!CullFrustum(pos, length(vec3(half_chunk_size)))) return;
@@ -132,6 +132,7 @@ void main() {
         // }
 
         bool visible = ChunkBackFaceCull(chunk_center, i, chunk_size);
+        // visible = true;
         // visible = !visible;
         // bool visible = true;
 

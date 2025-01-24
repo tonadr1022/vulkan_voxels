@@ -33,4 +33,12 @@ struct PaddedChunkMask {
   [[nodiscard]] bool TestXZY(int x, int y, int z) const {
     return (mask[(PCS * y) + z] & (1ull << x)) != 0;
   }
+
+  size_t SolidCount() {
+    size_t s = 0;
+    for (auto d : mask) {
+      s += std::popcount(d);
+    }
+    return s;
+  }
 };

@@ -254,7 +254,7 @@ void VoxelWorld::Update(vec3 cam_pos) {
         // fmt::println("{}", u.mult);
         u.pos = chunk_pool_.Get(mesh_task.chunk_handle)->pos * CS * u.mult;
         for (int i = 0; i < 6; i++) {
-          u.counts[i] = alg_data.face_vertex_lengths[i];
+          u.vert_counts[i] = alg_data.face_vertex_lengths[i];
         }
         chunk_mesh_uploads_.emplace_back(u);
         stats_.tot_meshes++;

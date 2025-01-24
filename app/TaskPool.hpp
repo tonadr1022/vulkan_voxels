@@ -24,15 +24,15 @@ struct TaskPool {
   }
 };
 
-template <typename T>
+template <typename T, typename D>
 class TaskPool2 {
  public:
   // moodycamel::ConcurrentQueue<T> to_complete_tasks;
   size_t to_complete_task_queue_size{};
-  moodycamel::ConcurrentQueue<T> done_tasks;
+  moodycamel::ConcurrentQueue<D> done_tasks;
   std::queue<T> to_complete;
   void Clear() {
-    T cmp;
+    D cmp;
     while (to_complete_task_queue_size > 0) {
       if (!done_tasks.try_dequeue(cmp)) {
         break;
@@ -48,7 +48,6 @@ class TaskPool2 {
   void IncInFlight() { in_flight_++; }
   void DecInFlight() { in_flight_--; }
   [[nodiscard]] size_t InFlight() const { return in_flight_; }
-
   [[nodiscard]] size_t MaxTasks() const { return max_tasks_; }
 
  private:
