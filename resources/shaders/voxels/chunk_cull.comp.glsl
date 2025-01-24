@@ -80,7 +80,7 @@ bool ChunkBackFaceCull(vec3 chunk_center, uint face, float chunk_size) {
 
 void main() {
     uint g_id = gl_GlobalInvocationID.x;
-    if (g_id >= in_draw_info.length() || g_id >= bits.w) return;
+    if (g_id >= bits.w) return;
     DrawInfo info = in_draw_info[g_id];
     // if (info.pos.x != 2666 && info.pos.z != 372) {
     //     // if (info.pos.x != 2480 && info.pos.z != 372) {

@@ -117,14 +117,13 @@ struct MeshOctree {
     NodeKey node_key;
     uint32_t chunk_gen_data_handle;
     uint32_t chunk_state_handle;
-    uint32_t height_map_handle;
   };
 
   std::vector<NodeQueueItem> to_mesh_queue_;
   gen::FBMNoise noise_;
   static constexpr int AbsoluteMaxDepth = 25;
   static constexpr uint32_t MaxChunks = 100000;
-  uint32_t max_depth_ = 10;
+  uint32_t max_depth_ = 25;
   std::vector<uint32_t> lod_bounds_;
   std::vector<ChunkMeshUpload> chunk_mesh_uploads_;
   std::vector<NodeKey> chunk_mesh_node_keys_;
@@ -135,6 +134,7 @@ struct MeshOctree {
   std::array<NodeList<Node>, AbsoluteMaxDepth + 1> nodes_;
   std::vector<NodeQueueItem> child_free_stack_;
   std::unordered_map<ivec3, OctreeHeightMapData> height_maps_;
+  std::mutex height_map_mtx_;
   // TODO: not pointers
   PtrObjPool<Chunk> chunk_pool_;
   PtrObjPool<HeightMapData> height_map_pool_;
@@ -167,8 +167,8 @@ struct MeshOctree {
   void FillNoise(HeightMapFloats& floats, ivec2 pos) const {
     noise_.white_noise->GenUniformGrid2D(floats.data(), pos.x, pos.y, PCS, PCS, freq_, seed_);
   }
-  uint32_t GetHeightMap(int x, int z, int lod);
-  // HeightMapData& GetHeightMap(int x, int z, int lod);
+  // uint32_t GetHeightMap(int x, int z, int lod);
+  HeightMapData& GetHeightMap(int x, int z, int lod);
   void UpdateLodBounds();
   void Validate();
 };
