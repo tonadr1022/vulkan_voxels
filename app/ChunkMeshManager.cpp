@@ -2,7 +2,6 @@
 
 #include <vulkan/vulkan_core.h>
 
-#include <cstddef>
 #include <tracy/TracyVulkan.hpp>
 
 #include "Error.hpp"

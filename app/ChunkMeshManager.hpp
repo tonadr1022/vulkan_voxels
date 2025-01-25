@@ -22,6 +22,11 @@ struct ChunkDrawUniformData {
   uint vertex_counts[8];
   bool operator==(const ChunkDrawUniformData& other) const { return position == other.position; }
 };
+struct UploadUniformParams {
+  ChunkDrawUniformData data;
+  uint32_t staging_copy_idx;
+  bool stale;
+};
 
 using ChunkAllocHandle = uint32_t;
 class ChunkMeshManager {
@@ -58,4 +63,5 @@ class ChunkMeshManager {
   std::vector<AsyncTransfer> transfers_;
   tvk::AllocatedBuffer quad_index_buf_;
   tvk::AllocatedBuffer chunk_uniform_gpu_buf_;
+  std::vector<UploadUniformParams> upload_uniform_params_;
 };

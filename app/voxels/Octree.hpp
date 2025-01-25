@@ -1,5 +1,7 @@
 #pragma once
 
+#include <parallel_hashmap/phmap.h>
+
 #include <chrono>
 #include <cstdint>
 #include <unordered_set>
@@ -11,6 +13,9 @@
 #include "voxels/Types.hpp"
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/hash.hpp>
+#include <mutex>
+#include <unordered_map>
+#include <vector>
 
 #include "voxels/Common.hpp"
 #include "voxels/Mesher.hpp"
@@ -149,15 +154,16 @@ struct MeshOctree {
   };
   struct MeshGenTask {
     NodeKey node_key;
-    uint32_t chunk_gen_data_handle;
+    Chunk* chunk;
     uint32_t chunk_state_handle;
+    uint32_t task_id;
     uint32_t staging_copy_idx;
     uint32_t vert_count;
     uint32_t vert_counts[6];
   };
   struct TerrainGenTask {
     NodeKey node_key;
-    uint32_t chunk_gen_data_handle;
+    Chunk* chunk;
     uint32_t chunk_state_handle;
   };
 
@@ -167,7 +173,7 @@ struct MeshOctree {
     NodeQueueItem item;
     uint32_t chunk_state_generation;
   };
-  std::vector<NodeQueueItem2> to_mesh_queue_;
+  // std::vector<NodeQueueItem2> to_mesh_queue_;
   gen::FBMNoise noise_;
   uint32_t max_depth_ = 25;
   std::vector<uint32_t> lod_bounds_;
@@ -183,7 +189,7 @@ struct MeshOctree {
   std::unordered_map<ivec3, OctreeHeightMapData> height_maps_;
   std::mutex height_map_mtx_;
   // TODO: not pointers
-  PtrObjPool<Chunk> chunk_pool_;
+  RingBuffer<Chunk> chunk_pool_;
   PtrObjPool<HeightMapData> height_map_pool_;
   std::chrono::steady_clock::time_point last_height_map_cleanup_time_;
   std::chrono::steady_clock::time_point last_octree_update_time_;
@@ -193,11 +199,24 @@ struct MeshOctree {
   RingBuffer<MeshAlgData> mesh_alg_buf_;
   RingBuffer<MesherOutputData> mesher_output_data_buf_;
   ivec3 prev_cam_chunk_pos_;
-  ivec3 curr_cam_chunk_pos_;
+  // ivec3 curr_cam_chunk_pos_;
   vec3 curr_cam_pos_;
   float freq_{0.005};
   int seed_{1};
 
+  // octree node has index into array of meshes, determines whether to split.
+  // if split, mark old and move out of array of meshes to draw
+  // struct ChunkDeletionFlag {
+  //   uint32_t mesh_handle;
+  //   bool stale{};
+  // };
+  // std::vector<ChunkDeletionFlag> chunk_deletion_flags_;
+  // once per frame, rendering thread will look at the valid chunks and upload them
+  bool IsTerrainMeshTaskValid(ivec4 key, uint32_t task_id) {
+    auto t = tm_state_.find(key);
+    if (t == tm_state_.end()) return false;
+    return t->second.task_id == task_id;
+  }
   void ProcessTerrainTask(TerrainGenTask& task);
   void ProcessMeshGenTask(MeshGenTask& task);
   [[nodiscard]] uint32_t GetOffset(uint32_t depth) const { return (1 << depth) * CS; }
@@ -209,6 +228,22 @@ struct MeshOctree {
   // uint32_t GetHeightMap(int x, int z, int lod);
   HeightMapData& GetHeightMap(int x, int z, int lod);
   void UpdateLodBounds();
+
+  struct TerrainMeshTask {
+    uint32_t task_id{};
+  };
+  std::mutex tm_state_mtx_;
+  phmap::node_hash_map<ivec4, TerrainMeshTask> tm_state_;
+  // libcuckoo::cuckoohash_map<ivec4, TerrainMeshTask> tm_state_;
+
+  struct TerrainMeshQueueItem {
+    ivec3 pos;
+    uint32_t lod;
+    uint32_t node_idx;
+    uint32_t task_id;
+  };
+  std::queue<TerrainMeshQueueItem> terrain_mesh_tasks_;
+  // ConcurrentHashmap<ivec4, TerrainMeshTask> terrain_mesh_tasks_;
   bool ChunkInHeightMapRange(ivec2 hm_range, int lod, ivec3 chunk_pos) {
     return chunk_pos.y <= hm_range[1] &&
            ((static_cast<int>(ChunkLenFromDepth(lod)) + chunk_pos.y) >= hm_range[0]);

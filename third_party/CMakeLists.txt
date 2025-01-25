@@ -17,6 +17,7 @@ target_include_directories(tracy PUBLIC tracy/public)
 get_target_property(tracy_include_dirs tracy INTERFACE_INCLUDE_DIRECTORIES)
 set_target_properties(tracy PROPERTIES INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${tracy_include_dirs}")
 
+add_subdirectory(parallel-hashmap)
 add_subdirectory(glm)
 add_subdirectory(vk-bootstrap)
 add_subdirectory(SDL)
