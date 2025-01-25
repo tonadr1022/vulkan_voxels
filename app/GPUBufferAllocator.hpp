@@ -461,11 +461,14 @@ struct VertexPool {
     return draw_cmd_allocator.Free(handle);
   }
 
-  uint32_t AddMesh(size_t copy_idx, UserT user_data) {
+  uint32_t AddMesh(size_t copy_idx, UserT user_data, bool stale) {
     ZoneScoped;
     std::lock_guard<std::mutex> lock(mtx_);
-    VkBufferCopy copy;
     vertex_staging.AddInUseCopy(copy_idx);
+    if (stale) {
+      return 0;
+    }
+    VkBufferCopy copy;
     draws_dirty_ = true;
     vertex_staging.GetBlock(copy_idx, copy.srcOffset, copy.size);
     uint32_t dst_offset;

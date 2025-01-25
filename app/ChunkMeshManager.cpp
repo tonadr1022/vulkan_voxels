@@ -80,10 +80,9 @@ void ChunkMeshManager::FreeMeshes(std::span<ChunkAllocHandle> handles) {
 }
 
 void ChunkMeshManager::UploadChunkMeshes(std::span<ChunkMeshUpload> uploads,
-                                         std::span<ChunkAllocHandle> handles) {
+                                         std::vector<ChunkAllocHandle>& handles) {
   ZoneScoped;
-  size_t idx = 0;
-  for (const auto& [pos, mult, counts, staging_copy_idx] : uploads) {
+  for (const auto& [pos, mult, counts, staging_copy_idx, stale] : uploads) {
     ChunkDrawUniformData d{};
     // int mult = *CVarSystem::Get().GetIntCVar("chunks.chunk_mult");
     d.position = ivec4(pos, mult << 3);
@@ -93,10 +92,12 @@ void ChunkMeshManager::UploadChunkMeshes(std::span<ChunkMeshUpload> uploads,
       quad_cnt += counts[i];
       d.vertex_counts[i] = counts[i];
     }
-    ChunkAllocHandle handle = chunk_quad_buffer_.AddMesh(staging_copy_idx, d);
-    handles[idx++] = handle;
     EASSERT(quad_cnt);
-    quad_count_ += quad_cnt;
+    ChunkAllocHandle handle = chunk_quad_buffer_.AddMesh(staging_copy_idx, d, stale);
+    if (!stale) {
+      handles.emplace_back(handle);
+      quad_count_ += quad_cnt;
+    }
   }
   // {
   //   ZoneScopedN("copy to gpu");

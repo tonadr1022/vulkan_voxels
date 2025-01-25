@@ -68,7 +68,7 @@ vec3 CalculateFaceCenter(vec3 chunk_center, vec3 face_normal, float chunk_size) 
 
 bool CullFrustum(vec4 pos, float radius) {
     #define cull(x) dot(pos, x) + radius >= 0.0
-    return cull(plane0) && cull(plane1) && cull(plane2) && cull(plane3) && cull(plane4) && cull(plane5);
+    return cull(plane0) && cull(plane1) && cull(plane2) && cull(plane3) && cull(plane5);
 }
 
 bool ChunkBackFaceCull(vec3 chunk_center, uint face, float chunk_size) {
@@ -102,7 +102,6 @@ void main() {
     float half_chunk_size = chunk_size * 0.5;
     vec3 chunk_center = vec3(info.pos.xyz) + vec3(half_chunk_size);
 
-    // TODO: visibility test
     uint offset = info.vertex_offset;
     const bool freeze_cull = bool(bits.x & 0x4);
     if (freeze_cull) return;

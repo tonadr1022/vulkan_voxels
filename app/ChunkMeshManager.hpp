@@ -32,7 +32,8 @@ class ChunkMeshManager {
   void Cleanup();
   [[nodiscard]] uint32_t CopyChunkToStaging(const uint8_t* data, uint32_t quad_cnt);
   [[nodiscard]] uint32_t CopyChunkToStaging(const uint64_t* data, uint32_t quad_cnt);
-  void UploadChunkMeshes(std::span<ChunkMeshUpload> uploads, std::span<ChunkAllocHandle> handles);
+  void UploadChunkMeshes(std::span<ChunkMeshUpload> uploads,
+                         std::vector<ChunkAllocHandle>& handles);
   void FreeMeshes(std::span<ChunkAllocHandle> handles);
   // void Update();
   void CopyDrawBuffers();

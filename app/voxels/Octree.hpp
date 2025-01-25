@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <unordered_set>
 
 #include "EAssert.hpp"
 #include "Pool.hpp"
@@ -15,36 +16,88 @@
 #include "voxels/Mesher.hpp"
 #include "voxels/Terrain.hpp"
 
+template <typename T>
+struct TSSet {
+  std::mutex free_mt;
+  std::unordered_set<T> data;
+  void Add(T val) {
+    std::lock_guard<std::mutex> lock(free_mt);
+    data.insert(val);
+  }
+  bool Contains(T val) {
+    std::lock_guard<std::mutex> lock(free_mt);
+    return data.contains(val);
+  }
+  void Remove(T val) {
+    std::lock_guard<std::mutex> lock(free_mt);
+    data.erase(val);
+  }
+};
 template <typename NodeT>
 struct NodeList {
+  struct NodeData {
+    NodeT user_data;
+    uint32_t generation{};
+  };
   std::vector<uint32_t> free_list;
-  std::vector<NodeT> nodes;
+  std::vector<NodeData> nodes;
   uint32_t AllocNode() {
     if (!free_list.empty()) {
       auto idx = free_list.back();
       free_list.pop_back();
-      nodes[idx] = {};
+      // nodes[idx].generation++;
+      nodes[idx].user_data = {};
       return idx;
     }
     uint32_t h = nodes.size();
-    nodes.emplace_back(NodeT{});
+    nodes.emplace_back(NodeData{});
     return h;
   }
 
+  [[nodiscard]] size_t Size() const { return nodes.size() - free_list.size(); }
+
   NodeT* Get(uint32_t idx) {
     EASSERT(idx < nodes.size());
-    return &nodes[idx];
+    return &nodes[idx].user_data;
   }
+  // uint32_t GetGeneration(uint32_t idx) {
+  //   EASSERT(idx < nodes.size());
+  //   return nodes[idx].generation;
+  // }
 
   // TODO: destructor?
   void Free(uint32_t idx) {
-    free_list.emplace_back(idx);
-    nodes[idx] = {};
+    nodes[idx].user_data = {};
+    free_list.push_back(idx);
   }
   void Clear() {
     free_list.clear();
+    // while (free_list.size()) free_list.pop_back();
     nodes.clear();
   }
+};
+
+struct NodeKey {
+  uint32_t lod;
+  uint32_t idx;
+};
+template <typename NodeT, int Depth>
+struct MultiLevelNodeList {
+  std::array<NodeList<NodeT>, Depth> nodes;
+  void FreeNode(uint32_t depth, uint32_t idx) { nodes[depth].Free(idx); }
+  uint32_t& GetGeneration(uint32_t depth, uint32_t idx) {
+    return nodes[depth].nodes[idx].generation;
+  }
+
+  NodeT* GetNode(uint32_t depth, uint32_t idx) { return GetNode(NodeKey{depth, idx}); }
+  [[nodiscard]] const NodeT* GetNode(uint32_t depth, uint32_t idx) const {
+    return GetNode(NodeKey{depth, idx});
+  }
+  NodeT* GetNode(const NodeKey& loc) { return &nodes[loc.lod].nodes[loc.idx].user_data; }
+  [[nodiscard]] const NodeT* GetNode(const NodeKey& loc) const {
+    return &nodes[loc.lod].nodes[loc.idx];
+  }
+  bool HasChildren(NodeKey node_key) { return GetNode(node_key)->mask != 0; }
 };
 
 struct MeshOctree {
@@ -54,44 +107,43 @@ struct MeshOctree {
   void OnImGui();
 
  private:
-  struct ChunkState {
-    using DataT = uint32_t;
-    uint32_t mesh_handle{0};
-    uint32_t num_solid{0};
-    DataT data{DataFlagsNeedsGenMeshing | DataFlagsChunkInRange | DataFlagsTerrainGenDirty};
-    [[nodiscard]] bool GetNeedsGenOrMeshing() const { return data & DataFlagsNeedsGenMeshing; }
-    void SetNeedsGenOrMeshing(bool v) {
-      data ^= (-static_cast<DataT>(v) ^ data) & DataFlagsNeedsGenMeshing;
-    }
-    void SetFlags(DataT flags, bool v) { data ^= (-static_cast<DataT>(v) ^ data) & flags; }
-
-    constexpr static DataT DataFlagsNeedsGenMeshing = 1 << 0;
-    constexpr static DataT DataFlagsChunkInRange = 2 << 0;
-    constexpr static DataT DataFlagsTerrainGenDirty = 3 << 0;
-  };
-
   struct Node {
     static constexpr std::array<uint32_t, 8> Mask = {1 << 0, 1 << 1, 1 << 2, 1 << 3,
                                                      1 << 4, 1 << 5, 1 << 6, 1 << 7};
-    void ClearMask(uint8_t idx) { mask &= ~Mask[idx]; }
-    [[nodiscard]] bool IsSet(uint8_t child) const { return mask & Mask[child]; }
-    void ClearMask() { mask = 0; }
-    void SetData(uint8_t child, uint32_t val) {
-      data[child] = val;
-      mask |= Mask[child];
+    void ClearMask(uint8_t idx) { flags &= ~Mask[idx]; }
+    [[nodiscard]] bool IsSet(uint8_t child) const { return flags & Mask[child]; }
+    void ClearMask() { flags &= 0xFFFFFF00; }
+    void SetData(uint8_t idx, uint32_t val) {
+      data[idx] = val;
+      flags |= Mask[idx];
     }
     std::array<uint32_t, 8> data;
-    uint32_t chunk_state_handle;
-    uint8_t mask;
+    uint32_t num_solid{0};
+    uint32_t mesh_handle{};
+    uint32_t flags{DefaultFlags};
+
+    using DataT = uint32_t;
+    void SetFlags(DataT flags, bool v) { flags ^= (-static_cast<DataT>(v) ^ flags) & flags; }
+    [[nodiscard]] bool GetNeedsGenOrMeshing() const { return flags & FlagsNotQueuedForMeshing; }
+    void SetNeedsGenOrMeshing(bool v) {
+      flags ^= (-static_cast<DataT>(v) ^ flags) & FlagsNotQueuedForMeshing;
+    }
+    void Reset() {
+      flags = {DefaultFlags};
+      num_solid = 0;
+    }
+    constexpr static DataT FlagsNotQueuedForMeshing = 1 << 8;
+    constexpr static DataT DataFlagsChunkInRange = 1 << 9;
+    constexpr static DataT DataFlagsTerrainGenDirty = 1 << 10;
+    constexpr static DataT DataFlagsActive = 1 << 11;
+    constexpr static DataT DefaultFlags = FlagsNotQueuedForMeshing | DataFlagsChunkInRange |
+                                          DataFlagsTerrainGenDirty | DataFlagsActive;
   };
   struct NodeQueueItem {
     uint32_t node_idx;
     ivec3 pos;
     uint32_t lod;
-  };
-  struct NodeKey {
-    uint32_t lod;
-    uint32_t idx;
+    uint32_t node_generation;
   };
   struct OctreeHeightMapData {
     // HeightMapData data;
@@ -100,20 +152,26 @@ struct MeshOctree {
   };
   struct MeshGenTask {
     NodeKey node_key;
-    uint32_t chunk_gen_data_handle;
+    Chunk* chunk;
     uint32_t staging_copy_idx;
     uint32_t vert_count;
     uint32_t vert_counts[6];
   };
   struct TerrainGenTask {
     NodeKey node_key;
-    uint32_t chunk_gen_data_handle;
-    uint32_t chunk_state_handle;
+    Chunk* chunk;
   };
 
   static constexpr int AbsoluteMaxDepth = 25;
   static constexpr uint32_t MaxChunks = 100000;
-  std::vector<NodeQueueItem> to_mesh_queue_;
+
+  struct NodeQueueItem2 {
+    uint32_t node_idx;
+    ivec3 pos;
+    uint32_t lod;
+    uint32_t node_generation;
+  };
+  std::vector<NodeQueueItem2> to_mesh_queue_;
   gen::FBMNoise noise_;
   uint32_t max_depth_ = 25;
   std::vector<uint32_t> lod_bounds_;
@@ -123,38 +181,35 @@ struct MeshOctree {
   std::vector<uint32_t> mesh_handle_upload_buffer_;
   std::vector<uint32_t> meshes_to_free_;
   std::vector<NodeQueueItem> node_queue_;
-  std::array<NodeList<Node>, AbsoluteMaxDepth + 1> nodes_;
+  // std::array<NodeList<Node>, AbsoluteMaxDepth + 1> nodes_;
+  MultiLevelNodeList<Node, AbsoluteMaxDepth + 1> nodes_;
   std::vector<NodeQueueItem> child_free_stack_;
   std::unordered_map<ivec3, OctreeHeightMapData> height_maps_;
   std::mutex height_map_mtx_;
-  // TODO: not pointers
-  PtrObjPool<Chunk> chunk_pool_;
   PtrObjPool<HeightMapData> height_map_pool_;
   std::chrono::steady_clock::time_point last_height_map_cleanup_time_;
-  ObjPool<ChunkState> chunk_states_pool_;
+  std::chrono::steady_clock::time_point last_octree_update_time_;
   TaskPool2<TerrainGenTask, MeshGenTask> terrain_tasks_;
   std::mutex mesh_alg_data_mtx_;
+  RingBuffer<Chunk> chunk_pool_;
   RingBuffer<MeshAlgData> mesh_alg_buf_;
   RingBuffer<MesherOutputData> mesher_output_data_buf_;
   ivec3 prev_cam_chunk_pos_;
   ivec3 curr_cam_chunk_pos_;
+  vec3 curr_cam_pos_;
   float freq_{0.005};
   int seed_{1};
 
+  uint32_t AllocNode(uint32_t lod);
+  void FreeNode(uint32_t lod, uint32_t idx) {
+    auto* node = nodes_.GetNode(lod, idx);
+    node->SetFlags(Node::DataFlagsActive, false);
+    nodes_.FreeNode(lod, idx);
+  }
   void ProcessTerrainTask(TerrainGenTask& task);
   void ProcessMeshGenTask(MeshGenTask& task);
   [[nodiscard]] uint32_t GetOffset(uint32_t depth) const { return (1 << depth) * CS; }
   void ClearOldHeightMaps(const std::chrono::steady_clock::time_point& now);
-  void FreeNode(uint32_t depth, uint32_t idx) { nodes_[depth].Free(idx); }
-  Node* GetNode(uint32_t depth, uint32_t idx) { return GetNode(NodeKey{depth, idx}); }
-  [[nodiscard]] const Node* GetNode(uint32_t depth, uint32_t idx) const {
-    return GetNode(NodeKey{depth, idx});
-  }
-  Node* GetNode(const NodeKey& loc) { return &nodes_[loc.lod].nodes[loc.idx]; }
-  [[nodiscard]] const Node* GetNode(const NodeKey& loc) const {
-    return &nodes_[loc.lod].nodes[loc.idx];
-  }
-  bool HasChildren(NodeKey node_key) { return GetNode(node_key)->mask != 0; }
   uint32_t ChunkLenFromDepth(uint32_t depth) { return PCS * (1 << (AbsoluteMaxDepth - depth)); }
   void FillNoise(HeightMapFloats& floats, ivec2 pos) const {
     noise_.white_noise->GenUniformGrid2D(floats.data(), pos.x, pos.y, PCS, PCS, freq_, seed_);
@@ -167,8 +222,14 @@ struct MeshOctree {
     return chunk_pos.y <= hm_range[1] &&
            ((static_cast<int>(ChunkLenFromDepth(lod)) + chunk_pos.y) >= hm_range[0]);
   }
+
+  // TSSet<uint32_t> freed_;
   void FreeChildren(std::vector<uint32_t>& meshes_to_free, uint32_t node_idx, uint32_t depth,
                     ivec3 pos);
+  ivec3 ChunkCenter(ivec3 pos, int lod) const { return pos + ((1 << (max_depth_ - lod)) * HALFCS); }
+  bool ShouldMeshChunk(ivec3 pos, uint32_t lod);
+  bool MeshCurrTest(ivec3 pos, uint32_t lod);
+  void DispatchTasks();
 };
 
 using VoxelData = uint8_t;
