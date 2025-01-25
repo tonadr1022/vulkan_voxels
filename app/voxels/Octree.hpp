@@ -209,7 +209,6 @@ struct MeshOctree {
   // uint32_t GetHeightMap(int x, int z, int lod);
   HeightMapData& GetHeightMap(int x, int z, int lod);
   void UpdateLodBounds();
-  void Validate();
   bool ChunkInHeightMapRange(ivec2 hm_range, int lod, ivec3 chunk_pos) {
     return chunk_pos.y <= hm_range[1] &&
            ((static_cast<int>(ChunkLenFromDepth(lod)) + chunk_pos.y) >= hm_range[0]);

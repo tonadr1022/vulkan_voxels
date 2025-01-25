@@ -13,16 +13,6 @@
 // it
 namespace {
 AutoCVarFloat lod_thresh("terrain.lod_thresh", "lod threshold of terrain", 10.0);
-
-template <typename T>
-void DumpBits(T d, size_t size = sizeof(T)) {
-  static_assert(std::is_integral_v<T>, "T must be an integral type.");
-  for (int i = static_cast<int>(size) - 1; i >= 0; i--) {
-    fmt::print("{}", ((d & (static_cast<T>(1) << i)) ? 1 : 0));
-  }
-  fmt::println("");
-}
-
 }  // namespace
 
 void MeshOctree::Init() {
@@ -76,8 +66,6 @@ void MeshOctree::FreeChildren(std::vector<uint32_t>& meshes_to_free, uint32_t no
       ChunkState* s = chunk_states_pool_.Get(node->chunk_state_handle);
       if (node->mesh_handle) {
         meshes_to_free.emplace_back(node->mesh_handle);
-        // fmt::println("freeing mesh {} ,depth {}, pos {} {} {}", s->mesh_handle, curr_depth,
-        //              curr_pos.x, curr_pos.y, curr_pos.z);
         s->generation++;
         node->mesh_handle = 0;
       }
@@ -161,11 +149,7 @@ void MeshOctree::Update(vec3 cam_pos) {
           continue;
         }
       }
-      //
-      // ivec3 chunk_center = pos + (1 << (MaxDepth - depth)) * HALFCS;
-      // fmt::println("node pos {} {} {}, depth {}, cs {} {} {}", pos.x, pos.y, pos.z, depth,
-      //              chunk_center.x, chunk_center.y, chunk_center.z);
-      // mesh if far away enough not to split
+
       if (ShouldMeshChunk(pos, lod) || lod == max_depth_) {
         auto* node = nodes_.GetNode(lod, node_idx);
         ChunkState* s = chunk_states_pool_.Get(node->chunk_state_handle);
@@ -188,9 +172,6 @@ void MeshOctree::Update(vec3 cam_pos) {
           s->SetNeedsGenOrMeshing(true);
           node->mesh_handle = 0;
         }
-
-        // fmt::println("{} {} {}", pos.x, pos.z, depth);
-        // InterpolateHeightMap(pos, depth, height_maps.at({pos.x, pos.z, depth}));
 
         int i = 0;
         for (int y = 0; y < 2; y++) {
@@ -218,10 +199,6 @@ void MeshOctree::Update(vec3 cam_pos) {
     }
   }
 
-  // fmt::println("no skip");
-  // ChunkMeshManager::Get().chunk_quad_buffer_.draw_cmd_allocator.PrintHandles();
-  // fmt::println("skip");
-  // ChunkMeshManager::Get().chunk_quad_buffer_.draw_cmd_allocator.PrintHandles(true);
   {
     ZoneScopedN("fill chunk and mesh");
 
@@ -303,12 +280,7 @@ void MeshOctree::Update(vec3 cam_pos) {
         auto* chunk = chunk_pool_.Get(task.chunk_gen_data_handle);
         EASSERT(chunk);
         chunk_pool_.Free(task.chunk_gen_data_handle);
-        // if (task.vert_count && ShouldMeshChunk(chunk->pos, task.node_key.lod)) {
         bool mesh_curr_test = MeshCurrTest(chunk->pos, task.node_key.lod);
-        // if (task.vert_count && !mesh_curr_test) {
-        //   fmt::println("stale {} {} {} {}", chunk->pos.x, chunk->pos.y, chunk->pos.z,
-        //                task.node_key.lod);
-        // }
         if (task.vert_count) {
           auto pos = chunk->pos;
           ChunkMeshUpload u;
@@ -322,7 +294,6 @@ void MeshOctree::Update(vec3 cam_pos) {
           chunk_mesh_uploads_.emplace_back(u);
           chunk_mesh_node_keys_.emplace_back(task.node_key);
         }
-        // fmt::println("meshing {} {} {} depth {}", pos.x, pos.y, pos.z, depth);
       }
     }
   }
@@ -346,7 +317,6 @@ void MeshOctree::Update(vec3 cam_pos) {
   mesh_handle_upload_buffer_.clear();
   chunk_mesh_node_keys_.clear();
   chunk_mesh_uploads_.clear();
-  // Validate();
   {
     ZoneScopedN("free meshes");
     if (meshes_to_free_.size()) {
@@ -355,7 +325,6 @@ void MeshOctree::Update(vec3 cam_pos) {
     }
   }
 
-  // cleanup old height maps
   {
     auto now = std::chrono::steady_clock::now();
     if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last_height_map_cleanup_time_) >
@@ -387,47 +356,6 @@ void MeshOctree::OnImGui() {
   }
   ImGui::End();
 }
-
-void MeshOctree::Validate() {
-  ZoneScoped;
-  std::vector<NodeQueueItem> node_q;
-  node_q.emplace_back(NodeQueueItem{0, vec3{0}, 0, 1});
-  while (node_q.size()) {
-    auto [node_idx, pos, depth, generation] = node_q.back();
-    node_q.pop_back();
-    const auto* node = nodes_.GetNode(depth, node_idx);
-    EASSERT(node);
-    if (node->mesh_handle) {
-      if (depth < max_depth_) {
-        if (node->mask != 0) {
-          fmt::println("failed depth {}, node_idx {}", depth, node_idx);
-          EASSERT(node->mask == 0);
-        }
-      }
-    } else {
-      if (depth < max_depth_) {
-        int off = GetOffset(max_depth_ - depth - 1);
-        int i = 0;
-        for (int y = 0; y < 2; y++) {
-          for (int z = 0; z < 2; z++) {
-            for (int x = 0; x < 2; x++) {
-              if (node->IsSet(i)) {
-                NodeQueueItem e;
-                e.lod = depth + 1;
-                e.pos = pos + ivec3{x, y, z} * off;
-                e.node_idx = node->data[i];
-                node_q.emplace_back(e);
-              }
-              i++;
-            }
-          }
-        }
-      }
-    }
-  }
-}
-// draw calls are made on vertices that aren't ready
-// make the vertices ready before the draw calls
 
 void MeshOctree::UpdateLodBounds() {
   lod_bounds_.resize(max_depth_ + 1);
@@ -479,7 +407,6 @@ void MeshOctree::ProcessTerrainTask(TerrainGenTask& task) {
       }
     }
   }
-  // gen::FillChunkNoCheck(chunk->grid, chunk->pos, hm, [c](int, int, int) { return c; });
 }
 
 void MeshOctree::ProcessMeshGenTask(MeshGenTask& task) {
@@ -540,32 +467,6 @@ HeightMapData& MeshOctree::GetHeightMap(int x, int z, int lod) {
   }
   return *hm;
 }
-
-// uint32_t MeshOctree::GetHeightMap(int x, int z, int lod) {
-//   ZoneScoped;
-//   auto it = height_maps_.find({x, z, lod});
-//   if (it != height_maps_.end()) {
-//     it->second.access = std::chrono::steady_clock::now();
-//     return it->second.height_map_pool_handle;
-//     // return *height_map_pool_.Get(it->second.height_map_pool_handle);
-//   }
-//   auto res = height_maps_.emplace(ivec3{x, z, lod}, OctreeHeightMapData{});
-//   res.first->second.height_map_pool_handle = height_map_pool_.Alloc();
-//   HeightMapData* hm = height_map_pool_.Get(res.first->second.height_map_pool_handle);
-//
-//   uint32_t scale = (1 << (max_depth_ - lod));
-//
-//   static AutoCVarFloat freq("terrain.freq", "freq of terrain", 0.00005);
-//   float adj_freq = freq.GetFloat() * static_cast<float>(scale);
-//   HeightMapFloats floats;
-//   noise_.fbm->GenUniformGrid2D(floats.data(), x / scale, z / scale, PCS, PCS, adj_freq, seed_);
-//
-//   static AutoCVarInt maxheight("terrain.maxheight", "max height", 10000);
-//   gen::NoiseToHeights(floats, *hm, {0, maxheight.Get()});
-//
-//   res.first->second.access = std::chrono::steady_clock::now();
-//   return res.first->second.height_map_pool_handle;
-// }
 
 bool MeshOctree::ShouldMeshChunk(ivec3 pos, uint32_t lod) {
   return glm::distance(vec3(ChunkCenter(pos, lod)), curr_cam_pos_) >=
