@@ -107,7 +107,6 @@ struct MeshOctree {
  private:
   struct ChunkState {
     using DataT = uint32_t;
-    uint32_t mesh_handle{0};
     uint32_t num_solid{0};
     uint32_t generation{0};
     DataT data{DataFlagsNeedsGenMeshing | DataFlagsChunkInRange | DataFlagsTerrainGenDirty};
@@ -133,6 +132,7 @@ struct MeshOctree {
       mask |= Mask[child];
     }
     std::array<uint32_t, 8> data;
+    uint32_t mesh_handle{0};
     uint32_t chunk_state_handle;
     uint8_t mask;
   };
