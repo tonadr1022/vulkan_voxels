@@ -171,7 +171,7 @@ struct MeshOctree {
     uint32_t lod;
     uint32_t node_generation;
   };
-  std::vector<NodeQueueItem2> to_mesh_queue_;
+  std::queue<NodeQueueItem2> to_mesh_queue_;
   gen::FBMNoise noise_;
   uint32_t max_depth_ = 25;
   std::vector<uint32_t> lod_bounds_;
@@ -199,6 +199,7 @@ struct MeshOctree {
   vec3 curr_cam_pos_;
   float freq_{0.005};
   int seed_{1};
+  bool chunk_pos_dirty_{false};
 
   uint32_t AllocNode(uint32_t lod);
   void FreeNode(uint32_t lod, uint32_t idx) {

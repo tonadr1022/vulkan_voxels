@@ -7,7 +7,6 @@
 #include "EAssert.hpp"
 #include "application/CVar.hpp"
 #include "application/ThreadPool.hpp"
-#include "application/Timer.hpp"
 #include "fmt/base.h"
 #include "imgui.h"
 
@@ -136,68 +135,70 @@ void MeshOctree::Update(vec3 cam_pos) {
   EASSERT(node_queue_.empty());
   curr_cam_pos_ = cam_pos;
   auto new_cam_chunk_pos = ivec3(cam_pos) / CS;
-  bool changed_chunk_pos = new_cam_chunk_pos != prev_cam_chunk_pos_;
+  chunk_pos_dirty_ = chunk_pos_dirty_ || new_cam_chunk_pos != prev_cam_chunk_pos_;
   prev_cam_chunk_pos_ = new_cam_chunk_pos;
-  bool update_ready = changed_chunk_pos;
   auto now = std::chrono::steady_clock::now();
-  update_ready =
-      (update_ready || std::chrono::duration_cast<std::chrono::milliseconds>(
-                           now - last_octree_update_time_) > std::chrono::milliseconds(7));
+  bool time_ready = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        now - last_octree_update_time_) > std::chrono::milliseconds(1);
+  bool update_ready = time_ready;
   if (!to_mesh_queue_.size() && update_ready) {
     last_octree_update_time_ = now;
-    node_queue_.push_back(NodeQueueItem{0, vec3{0}, 0, nodes_.nodes[0].nodes[0].generation});
-    while (!node_queue_.empty()) {
-      auto [node_idx, pos, lod, generation] = node_queue_.back();
-      node_queue_.pop_back();
-      {
-        auto* node = nodes_.GetNode(lod, node_idx);
-        EASSERT(node);
-        if (!(node->flags & Node::DataFlagsTerrainGenDirty) && node->num_solid == 0) {
-          continue;
+    if (chunk_pos_dirty_) {
+      chunk_pos_dirty_ = false;
+      node_queue_.push_back(NodeQueueItem{0, vec3{0}, 0, nodes_.nodes[0].nodes[0].generation});
+      while (!node_queue_.empty()) {
+        auto [node_idx, pos, lod, generation] = node_queue_.back();
+        node_queue_.pop_back();
+        {
+          auto* node = nodes_.GetNode(lod, node_idx);
+          EASSERT(node);
+          if (!(node->flags & Node::DataFlagsTerrainGenDirty) && node->num_solid == 0) {
+            continue;
+          }
         }
-      }
-      if (ShouldMeshChunk(pos, lod)) {
-        if (lod < max_depth_) {
-          FreeChildren(meshes_to_free_, node_idx, lod, pos);
-        }
-        auto* node = nodes_.GetNode(lod, node_idx);
-        if (node->GetNeedsGenOrMeshing()) {
-          node->SetNeedsGenOrMeshing(false);
-          // auto& hm = GetHeightMap(pos.x, pos.z, lod);
-          // if (ChunkInHeightMapRange(hm.range, lod, pos)) {
-          to_mesh_queue_.emplace_back(node_idx, pos, lod, nodes_.GetGeneration(lod, node_idx));
-          // } else {
-          //   node->num_solid = 0;
-          //   node->SetFlags(Node::DataFlagsTerrainGenDirty, false);
-          // }
-        }
-      } else if (lod < max_depth_) {
-        int off = GetOffset(max_depth_ - lod - 1);
-        // TODO: refactor
-        auto* node = nodes_.nodes[lod].Get(node_idx);
-        if (node->mesh_handle) {
-          meshes_to_free_.emplace_back(node->mesh_handle);
-          node->SetNeedsGenOrMeshing(true);
-          nodes_.GetGeneration(lod, node_idx)++;
-          node->mesh_handle = 0;
-        }
-        int i = 0;
-        for (int y = 0; y < 2; y++) {
-          for (int z = 0; z < 2; z++) {
-            for (int x = 0; x < 2; x++, i++) {
-              NodeQueueItem e;
-              e.lod = lod + 1;
-              e.pos = pos + ivec3{x, y, z} * off;
-              auto* node = nodes_.nodes[lod].Get(node_idx);
-              uint32_t child_node_idx;
-              if (node->IsSet(i)) {
-                child_node_idx = node->data[i];
-              } else {
-                child_node_idx = AllocNode(e.lod);
-                node->SetData(i, child_node_idx);
+        if (ShouldMeshChunk(pos, lod)) {
+          if (lod < max_depth_) {
+            FreeChildren(meshes_to_free_, node_idx, lod, pos);
+          }
+          auto* node = nodes_.GetNode(lod, node_idx);
+          if (node->GetNeedsGenOrMeshing()) {
+            node->SetNeedsGenOrMeshing(false);
+            // auto& hm = GetHeightMap(pos.x, pos.z, lod);
+            // if (ChunkInHeightMapRange(hm.range, lod, pos)) {
+            to_mesh_queue_.emplace(node_idx, pos, lod, nodes_.GetGeneration(lod, node_idx));
+            // } else {
+            //   node->num_solid = 0;
+            //   node->SetFlags(Node::DataFlagsTerrainGenDirty, false);
+            // }
+          }
+        } else if (lod < max_depth_) {
+          int off = GetOffset(max_depth_ - lod - 1);
+          // TODO: refactor
+          auto* node = nodes_.nodes[lod].Get(node_idx);
+          if (node->mesh_handle) {
+            meshes_to_free_.emplace_back(node->mesh_handle);
+            node->SetNeedsGenOrMeshing(true);
+            nodes_.GetGeneration(lod, node_idx)++;
+            node->mesh_handle = 0;
+          }
+          int i = 0;
+          for (int y = 0; y < 2; y++) {
+            for (int z = 0; z < 2; z++) {
+              for (int x = 0; x < 2; x++, i++) {
+                NodeQueueItem e;
+                e.lod = lod + 1;
+                e.pos = pos + ivec3{x, y, z} * off;
+                auto* node = nodes_.nodes[lod].Get(node_idx);
+                uint32_t child_node_idx;
+                if (node->IsSet(i)) {
+                  child_node_idx = node->data[i];
+                } else {
+                  child_node_idx = AllocNode(e.lod);
+                  node->SetData(i, child_node_idx);
+                }
+                e.node_idx = child_node_idx;
+                node_queue_.emplace_back(e);
               }
-              e.node_idx = child_node_idx;
-              node_queue_.emplace_back(e);
             }
           }
         }
@@ -469,8 +470,8 @@ void MeshOctree::DispatchTasks() {
   size_t stale_cnt = 0;
   while (terrain_tasks_.CanEnqueueTask() && !to_mesh_queue_.empty()) {
     auto stale = [&stale_cnt]() { stale_cnt++; };
-    NodeQueueItem2 item = to_mesh_queue_.back();
-    to_mesh_queue_.pop_back();
+    NodeQueueItem2 item = to_mesh_queue_.front();
+    to_mesh_queue_.pop();
     auto pos = item.pos;
     auto lod = item.lod;
     auto node_generation = item.node_generation;
