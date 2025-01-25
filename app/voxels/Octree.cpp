@@ -7,7 +7,6 @@
 #include "EAssert.hpp"
 #include "application/CVar.hpp"
 #include "application/ThreadPool.hpp"
-#include "application/Timer.hpp"
 #include "imgui.h"
 
 // TODO: when a mesh is made, the node might be stale, so a mesh exists without a node to free
@@ -38,13 +37,11 @@ void MeshOctree::Init() {
   mesh_alg_buf_.Init(1000);
   mesher_output_data_buf_.Init(1000);
 
-  chunk_states_pool_.Init(MaxChunks);
   prev_cam_chunk_pos_ = ivec3{INT_MAX};
 
   noise_.Init(1, 0.005, 4);
   auto root = nodes_.nodes[0].AllocNode();
   EASSERT(root == 0);
-  nodes_.GetNode(0, 0)->chunk_state_handle = chunk_states_pool_.Alloc();
 
   UpdateLodBounds();
   Update(ivec3{0});
@@ -58,7 +55,7 @@ void MeshOctree::FreeChildren(std::vector<uint32_t>& meshes_to_free, uint32_t no
     auto [curr_idx, curr_pos, curr_depth, generation] = child_free_stack_.back();
     child_free_stack_.pop_back();
     auto* node = nodes_.GetNode(curr_depth, curr_idx);
-    EASSERT(curr_depth != max_depth_ || node->mask == 0);
+    EASSERT(curr_depth != max_depth_ || (node->flags & 0x000000FF) == 0);
     int i = 0;
     for (int y = 0; y < 2; y++) {
       for (int z = 0; z < 2; z++) {
@@ -74,16 +71,13 @@ void MeshOctree::FreeChildren(std::vector<uint32_t>& meshes_to_free, uint32_t no
     }
     node->ClearMask();
     if (curr_depth != depth) {
-      ChunkState* s = chunk_states_pool_.Get(node->chunk_state_handle);
-      if (s->mesh_handle) {
-        meshes_to_free.emplace_back(s->mesh_handle);
-        // fmt::println("freeing mesh {} ,depth {}, pos {} {} {}", s->mesh_handle, curr_depth,
+      if (node->mesh_handle) {
+        meshes_to_free.emplace_back(node->mesh_handle);
+        // fmt::println("freeing mesh {} ,depth {}, pos {} {} {}", node->mesh_handle, curr_depth,
         //              curr_pos.x, curr_pos.y, curr_pos.z);
-        s->generation++;
-        s->mesh_handle = 0;
+        node->generation++;
+        node->mesh_handle = 0;
       }
-      // TODO: this may be in use by worker threads
-      chunk_states_pool_.Free(node->chunk_state_handle);
       nodes_.FreeNode(curr_depth, curr_idx);
     }
   }
@@ -98,13 +92,12 @@ void MeshOctree::Reset() {
     node_q.pop_back();
     const auto* node = nodes_.GetNode(depth, node_idx);
     EASSERT(node);
-    ChunkState* s = chunk_states_pool_.Get(node->chunk_state_handle);
-    if (s->mesh_handle) {
-      to_free.emplace_back(s->mesh_handle);
+    if (node->mesh_handle) {
+      to_free.emplace_back(node->mesh_handle);
       if (depth < max_depth_) {
-        if (node->mask != 0) {
+        if (node->flags != 0) {
           fmt::println("failed depth {}, node_idx {}", depth, node_idx);
-          EASSERT(node->mask == 0);
+          EASSERT(node->flags == 0);
         }
       }
     } else {
@@ -158,8 +151,7 @@ void MeshOctree::Update(vec3 cam_pos) {
       {
         auto* node = nodes_.GetNode(lod, node_idx);
         EASSERT(node);
-        ChunkState* s = chunk_states_pool_.Get(node->chunk_state_handle);
-        if (!(s->data & ChunkState::DataFlagsTerrainGenDirty) && s->num_solid == 0) {
+        if (!(node->flags & Node::DataFlagsTerrainGenDirty) && node->num_solid == 0) {
           continue;
         }
       }
@@ -170,12 +162,11 @@ void MeshOctree::Update(vec3 cam_pos) {
       // mesh if far away enough not to split
       if (ShouldMeshChunk(pos, lod) || lod == max_depth_) {
         auto* node = nodes_.GetNode(lod, node_idx);
-        ChunkState* s = chunk_states_pool_.Get(node->chunk_state_handle);
         if (lod < max_depth_) {
           FreeChildren(meshes_to_free_, node_idx, lod, pos);
         }
-        if (s->GetNeedsGenOrMeshing()) {
-          s->SetNeedsGenOrMeshing(false);
+        if (node->GetNeedsGenOrMeshing()) {
+          node->SetNeedsGenOrMeshing(false);
           to_mesh_queue_.emplace_back(
               NodeQueueItem{node_idx, pos, lod, nodes_.nodes[lod].GetGeneration(node_idx)});
         }
@@ -184,11 +175,10 @@ void MeshOctree::Update(vec3 cam_pos) {
 
         // TODO: refactor
         auto* node = nodes_.nodes[lod].Get(node_idx);
-        ChunkState* s = chunk_states_pool_.Get(node->chunk_state_handle);
-        if (s->mesh_handle) {
-          meshes_to_free_.emplace_back(s->mesh_handle);
-          s->SetNeedsGenOrMeshing(true);
-          s->mesh_handle = 0;
+        if (node->mesh_handle) {
+          meshes_to_free_.emplace_back(node->mesh_handle);
+          node->SetNeedsGenOrMeshing(true);
+          node->mesh_handle = 0;
         }
 
         // fmt::println("{} {} {}", pos.x, pos.z, depth);
@@ -207,8 +197,6 @@ void MeshOctree::Update(vec3 cam_pos) {
                 child_node_idx = node->data[i];
               } else {
                 child_node_idx = nodes_.nodes[e.lod].AllocNode();
-                nodes_.GetNode(e.lod, child_node_idx)->chunk_state_handle =
-                    chunk_states_pool_.Alloc();
                 node->SetData(i, child_node_idx);
               }
               e.node_idx = child_node_idx;
@@ -246,30 +234,25 @@ void MeshOctree::Update(vec3 cam_pos) {
         // freed, same with nodes sets
 
         // TODO: maybe rid of chunk state?
-        if (!node || nodes_.nodes[lod].GetGeneration(node_idx) != node_generation ||
-            item.chunk_state_generation !=
-                chunk_states_pool_.Get(node->chunk_state_handle)->generation) {
+        if (!node || nodes_.nodes[lod].GetGeneration(node_idx) != node_generation) {
           continue;
         }
         auto chunk_handle = chunk_pool_.Alloc();
         auto* chunk = chunk_pool_.Get(chunk_handle);
         EASSERT(chunk);
         chunk->pos = pos;
-        TerrainGenTask terrain_task{NodeKey{.lod = lod, .idx = node_idx}, chunk_handle,
-                                    node->chunk_state_handle};
+        TerrainGenTask terrain_task{NodeKey{.lod = lod, .idx = node_idx}, chunk_handle};
         terrain_tasks_.IncInFlight();
         thread_pool.detach_task([terrain_task, this, node_generation]() {
           auto t = terrain_task;
           MeshGenTask mesh_task{};
           auto done = [&mesh_task, this]() { terrain_tasks_.done_tasks.enqueue(mesh_task); };
           mesh_task.chunk_gen_data_handle = t.chunk_gen_data_handle;
-          mesh_task.chunk_state_handle = t.chunk_state_handle;
           if (nodes_.GetGeneration(t.node_key.lod, t.node_key.idx) != node_generation) {
             done();
             return;
           }
           auto* chunk = chunk_pool_.Get(t.chunk_gen_data_handle);
-          auto* chunk_state = chunk_states_pool_.Get(t.chunk_state_handle);
           // check whether still need to do this task
           bool mesh_curr_test = MeshCurrTest(chunk->pos, t.node_key.lod);
           if (!mesh_curr_test) {
@@ -277,16 +260,16 @@ void MeshOctree::Update(vec3 cam_pos) {
             return;
           }
           ProcessTerrainTask(t);
-          if (nodes_.GetGeneration(t.node_key.lod, t.node_key.idx) != node_generation) {
+          auto* node = nodes_.GetNode(t.node_key);
+          if (!node || nodes_.GetGeneration(t.node_key.lod, t.node_key.idx) != node_generation) {
             done();
             return;
           }
           chunk = chunk_pool_.Get(t.chunk_gen_data_handle);
-          chunk_state = chunk_states_pool_.Get(t.chunk_state_handle);
           size_t num_solid = chunk->grid.mask.SolidCount();
-          chunk_state->num_solid = num_solid;
-          chunk_state->SetFlags(ChunkState::DataFlagsTerrainGenDirty, false);
-          if (chunk && chunk_state && num_solid) {
+          node->num_solid = num_solid;
+          node->SetFlags(Node::DataFlagsTerrainGenDirty, false);
+          if (chunk && num_solid) {
             mesh_task.node_key = t.node_key;
             ProcessMeshGenTask(mesh_task);
             done();
@@ -338,9 +321,7 @@ void MeshOctree::Update(vec3 cam_pos) {
       if (!chunk_mesh_uploads_[i].stale) {
         auto* node = nodes_.GetNode(chunk_mesh_node_keys_[j]);
         if (!node) continue;
-        auto* state = chunk_states_pool_.Get(node->chunk_state_handle);
-        EASSERT(state);
-        state->mesh_handle = mesh_handle_upload_buffer_[j];
+        node->mesh_handle = mesh_handle_upload_buffer_[j];
         j++;
       }
     }
@@ -399,11 +380,11 @@ void MeshOctree::Validate() {
     node_q.pop_back();
     const auto* node = nodes_.GetNode(depth, node_idx);
     EASSERT(node);
-    if (chunk_states_pool_.Get(node->chunk_state_handle)->mesh_handle) {
+    if (node->mesh_handle) {
       if (depth < max_depth_) {
-        if (node->mask != 0) {
+        if ((node->flags & 0x000000FF) != 0) {
           fmt::println("failed depth {}, node_idx {}", depth, node_idx);
-          EASSERT(node->mask == 0);
+          EASSERT(node->flags == 0);
         }
       }
     } else {

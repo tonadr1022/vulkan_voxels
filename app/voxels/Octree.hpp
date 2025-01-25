@@ -105,36 +105,31 @@ struct MeshOctree {
   void OnImGui();
 
  private:
-  struct ChunkState {
-    using DataT = uint32_t;
-    uint32_t mesh_handle{0};
-    uint32_t num_solid{0};
-    uint32_t generation{0};
-    DataT data{DataFlagsNeedsGenMeshing | DataFlagsChunkInRange | DataFlagsTerrainGenDirty};
-    [[nodiscard]] bool GetNeedsGenOrMeshing() const { return data & DataFlagsNeedsGenMeshing; }
-    void SetNeedsGenOrMeshing(bool v) {
-      data ^= (-static_cast<DataT>(v) ^ data) & DataFlagsNeedsGenMeshing;
-    }
-    void SetFlags(DataT flags, bool v) { data ^= (-static_cast<DataT>(v) ^ data) & flags; }
-
-    constexpr static DataT DataFlagsNeedsGenMeshing = 1 << 0;
-    constexpr static DataT DataFlagsChunkInRange = 2 << 0;
-    constexpr static DataT DataFlagsTerrainGenDirty = 3 << 0;
-  };
-
   struct Node {
     static constexpr std::array<uint32_t, 8> Mask = {1 << 0, 1 << 1, 1 << 2, 1 << 3,
                                                      1 << 4, 1 << 5, 1 << 6, 1 << 7};
-    void ClearMask(uint8_t idx) { mask &= ~Mask[idx]; }
-    [[nodiscard]] bool IsSet(uint8_t child) const { return mask & Mask[child]; }
-    void ClearMask() { mask = 0; }
-    void SetData(uint8_t child, uint32_t val) {
-      data[child] = val;
-      mask |= Mask[child];
+    void ClearMask(uint8_t idx) { flags &= ~Mask[idx]; }
+    [[nodiscard]] bool IsSet(uint8_t child) const { return flags & Mask[child]; }
+    void ClearMask() { flags &= 0xFFFFFF00; }
+    void SetData(uint8_t idx, uint32_t val) {
+      data[idx] = val;
+      flags |= Mask[idx];
     }
     std::array<uint32_t, 8> data;
-    uint32_t chunk_state_handle;
-    uint8_t mask;
+    uint32_t num_solid{0};
+    uint32_t generation{0};
+    uint32_t mesh_handle;
+    uint32_t flags{DataFlagsNeedsGenMeshing | DataFlagsChunkInRange | DataFlagsTerrainGenDirty};
+
+    using DataT = uint32_t;
+    void SetFlags(DataT flags, bool v) { flags ^= (-static_cast<DataT>(v) ^ flags) & flags; }
+    [[nodiscard]] bool GetNeedsGenOrMeshing() const { return flags & DataFlagsNeedsGenMeshing; }
+    void SetNeedsGenOrMeshing(bool v) {
+      flags ^= (-static_cast<DataT>(v) ^ flags) & DataFlagsNeedsGenMeshing;
+    }
+    constexpr static DataT DataFlagsNeedsGenMeshing = 1 << 8;
+    constexpr static DataT DataFlagsChunkInRange = 1 << 9;
+    constexpr static DataT DataFlagsTerrainGenDirty = 1 << 10;
   };
   struct NodeQueueItem {
     uint32_t node_idx;
@@ -150,7 +145,6 @@ struct MeshOctree {
   struct MeshGenTask {
     NodeKey node_key;
     uint32_t chunk_gen_data_handle;
-    uint32_t chunk_state_handle;
     uint32_t staging_copy_idx;
     uint32_t vert_count;
     uint32_t vert_counts[6];
@@ -158,7 +152,6 @@ struct MeshOctree {
   struct TerrainGenTask {
     NodeKey node_key;
     uint32_t chunk_gen_data_handle;
-    uint32_t chunk_state_handle;
   };
 
   static constexpr int AbsoluteMaxDepth = 25;
@@ -187,7 +180,6 @@ struct MeshOctree {
   PtrObjPool<HeightMapData> height_map_pool_;
   std::chrono::steady_clock::time_point last_height_map_cleanup_time_;
   std::chrono::steady_clock::time_point last_octree_update_time_;
-  ObjPool<ChunkState> chunk_states_pool_;
   TaskPool2<TerrainGenTask, MeshGenTask> terrain_tasks_;
   std::mutex mesh_alg_data_mtx_;
   RingBuffer<MeshAlgData> mesh_alg_buf_;
