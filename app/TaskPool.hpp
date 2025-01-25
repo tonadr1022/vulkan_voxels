@@ -51,6 +51,6 @@ class TaskPool2 {
   [[nodiscard]] size_t MaxTasks() const { return max_tasks_; }
 
  private:
-  size_t in_flight_{0};
+  std::atomic<size_t> in_flight_{0};
   size_t max_tasks_{0};
 };
